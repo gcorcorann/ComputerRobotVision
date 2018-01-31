@@ -1,0 +1,132 @@
+#!/usr/bin/env python3
+import time
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.autograd import Variable
+from model import CRNN
+from dataloader import get_loaders
+
+def train_network(dataloaders, network, criterion, optimizer, num_epochs, GPU):
+    # store network to GPU
+    if GPU:
+        network = network.cuda()
+
+    # store best validation accuracy
+    best_acc = 0.0
+
+    for epoch in range(num_epochs):
+        # start timer
+        start = time.time()
+        print('Epoch {}/{}'.format(epoch+1, num_epochs))
+        print('-' * 10)
+
+        # each epoch has a training and validation phase
+        for phase in ['Train', 'Valid']:
+            if phase == 'Train':
+                network.train(True)  # set model to training model
+            else:
+                network.train(False)  # set model to evaluation mode
+
+            running_loss = 0.0
+            running_correct = 0
+
+            # iterate over data
+            for data in dataloaders[phase]:
+                # get the inputs
+                inputs, labels = data['X'], data['y']
+                # reshape into [numSeqs, batchSize, numChannels, Height, Width]
+                inputs = inputs.transpose(0,1)
+
+                # initialize hidden and cell
+                hidden, cell = network.init_hidden()
+
+                # wrap in Variable
+                if GPU:
+                    inputs = Variable(inputs.cuda())
+                    labels = Variable(labels.cuda())
+                    hidden = Variable(hidden.cuda())
+                    cell = Variable(cell.cuda())
+                else:
+                    inputs = Variable(inputs)
+                    labels = Variable(labels)
+                    hidden = Variable(hidden)
+                    cell = Variable(cell)
+
+                # store hidden and cell in tuple
+                hn = (hidden, cell)
+
+                # zero the parameter gradients
+                optimizer.zero_grad()
+
+                # for each input in sequence
+                for inp in inputs:
+                    # forward pass
+                    outputs, hn = network.forward(inp, hn)
+                
+                # remove first dimension
+                outputs = outputs[0]
+                # loss + predicted
+                _, pred = torch.max(outputs.data, 1)
+                loss = criterion(outputs, labels)
+
+                # backwards + optimize only if in training phase
+                if phase == 'Train':
+                    loss.backward()
+                    optimizer.step()
+
+                # statistics
+                running_loss += loss.data[0] * inputs.size(1)
+                running_correct += torch.sum(pred == labels.data)
+                
+            # find size of dataset (numBatches * batchSize)
+            dataset_size = len(dataloaders[phase]) * inputs.size(1)
+            epoch_loss = running_loss / dataset_size
+            epoch_acc = running_correct / dataset_size
+            
+            print('{} Loss: {:.4f} Acc: {:.4f}'.format(
+                phase, epoch_loss, epoch_acc))
+
+            if phase == 'Valid' and epoch_acc > best_acc:
+                best_acc = epoch_acc
+
+        # print elapsed time
+        time_elapsed = time.time() - start
+        print('Epoch complete in {:.0f}m {:.0f}s'.format(
+        time_elapsed // 60, time_elapsed % 60))
+        print()
+
+
+    return best_acc
+
+def main():
+    """Main Function."""
+    # hyper-parameters
+    GPU = True
+    labels_path = '/home/gary/datasets/accv/labels_gary.txt'
+    input_size = (100,100)
+    num_epochs = 10
+    batch_size = 5
+    rnn_hidden = 32
+    num_classes = 4
+    learning_rate = 1e-5
+    criterion = nn.CrossEntropyLoss()
+
+    # create dataloaders object
+    dataloaders = get_loaders(labels_path, input_size, batch_size,
+            num_workers=4)
+    print('Training Dataset Size:', len(dataloaders['Train']) * batch_size)
+    print('Validation Dataset Size:', len(dataloaders['Valid']) * batch_size)
+
+    # create network and optimizer
+    net = CRNN(input_size, batch_size, rnn_hidden, num_classes)
+    optimizer = optim.Adam(net.parameters(), learning_rate)
+    print(net)
+
+    # train network
+    best_acc = train_network(dataloaders, net, criterion, optimizer, 
+            num_epochs, GPU)
+    print('Best Validation Accuracy:', best_acc)
+
+if __name__ == '__main__':
+    main()
