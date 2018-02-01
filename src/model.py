@@ -93,21 +93,69 @@ class Network2(nn.Module):
         outputs = self.linear(outputs[-1])
         return outputs
 
+class Network3(nn.Module):
+    """
+    ResNet + LSTM.
+    """
+    def __init__(self, batch_size, lstm_hidden, seq_length):
+        """
+        Initialize Parameters.
+        
+        @param  batch_size: size of batch
+        @param  lstm_hidden: size of LSTM hidden layer
+        """
+        super().__init__()
+        self.batch_size = batch_size
+        self.lstm_hidden = lstm_hidden
+        self.seq_length = seq_length
+        # create VGG model
+        self.cnn = models.resnet18()
+        self.num_feats = self.cnn.fc.in_features
+        # remove last layer
+        self.cnn = nn.Sequential(*list(self.cnn.children())[:-1])
+        # use CNN as feature extractor
+#        for param in self.cnn.parameters():
+#            param.requires_grad = False
+        # lstm layer
+        self.lstm = nn.LSTM(self.num_feats, lstm_hidden, 1)
+        self.linear = nn.Linear(lstm_hidden, 4)
+        
+    def forward(self, inputs):
+        # list to hold features
+        feats = []
+        # for each input in sequence
+        for i, inp in enumerate(inputs):
+            # pass through CNN
+            out = self.cnn.forward(inp)
+            feats.append(out.data)
+
+        # format features and store in Variable
+        feats = torch.cat(feats).view(self.seq_length, -1, self.num_feats)
+        feats = Variable(feats)
+        # pass through LSTM
+        outputs, _ = self.lstm(feats)
+        outputs = self.linear(outputs[-1])
+        return outputs
+
 def main():
+    import time
+
+    # start timer
+    start = time.time()
     # set random seed
     torch.manual_seed(1)
     
     # hyper-parameters
-    GPU = True
-    seq_length = 100
-    batch_size = 10
+    GPU = False
+    seq_length = 10
+    batch_size = 5
     rnn_hidden = 128
     num_classes = 4
     input_size = (224,224)
 
     # create model object
 #    net = Network1(input_size, batch_size, rnn_hidden, num_classes, seq_length)
-    net = Network2(batch_size, rnn_hidden, seq_length)
+    net = Network3(batch_size, rnn_hidden, seq_length)
     print(net)
     if GPU:
         net = net.cuda()
@@ -125,6 +173,7 @@ def main():
     output = net.forward(inputs)
     print('outputs:', output.size())
     print(output)
+    print('Elapsed Time:', time.time()-start)
 
 if __name__ == '__main__':
     main()
