@@ -6,13 +6,17 @@ import torchvision.models as models
 
 class CRNN(nn.Module):
     """VGGNet + LSTM"""
-    def __init__(self, rnn_hidden):
+    def __init__(self, batch_size, lstm_hidden, seq_length):
         """
         Initialize Parameters.
         
-        @param  rnn_hidden: size of LSTM hidden layer
+        @param  batch_size: size of batch
+        @param  lstm_hidden: size of LSTM hidden layer
         """
         super().__init__()
+        self.batch_size = batch_size
+        self.lstm_hidden = lstm_hidden
+        self.seq_length = seq_length
         # create VGG model
         self.cnn = models.vgg11_bn()
         # remove last layer
@@ -20,47 +24,58 @@ class CRNN(nn.Module):
                 *list(self.cnn.classifier.children())[:-1]
                 )
         # lstm layer
-        self.lstm = nn.LSTM(self.cnn.classifier[3].out_features, rnn_hidden, 1)
-        self.linear = nn.Linear(rnn_hidden, 4)
+        self.lstm = nn.LSTM(self.cnn.classifier[3].out_features, 
+                lstm_hidden, 1)
+        #self.linear = nn.Linear(lstm_hidden, 4)
         
-    def forward(self, x, hn):
-        """Forward Pass Through Network.
+    def forward(self, inputs):
+        # list to hold features
+        feats = []
+        # for each input in sequence
+        for i, inp in enumerate(inputs):
+            print(i, 'inp:', inp.size())
+            # pass through CNN
+            out = self.cnn.forward(inp)
+            feats.append(out.data)
 
-        @param  x:  data in format [batchSize, numChannels, Height, Width]
-        @param  hn: hidden and cell layers for LSTM
-                        @pre: tuple
+        feats = torch.cat(feats).view(self.seq_length, self.batch_size, -1)
+        feats = Variable(feats)
+        print('feats:', feats.size())
 
-        @return outputs:    output data
-        """
-        # pass through CNN
-        feats = self.cnn.forward(x)
-        # reformat for LSTM [1 x batchSize x numFeats]
-        feats = feats.unsqueeze(0)
-        # pass through LSTM
-        outputs, hn = self.lstm(feats, hn)
-        outputs = self.linear(outputs)
-        return outputs
+        outputs, _ = self.lstm(feats)
+        return outputs[-1]
+
+    def init_hidden(self):
+        hidden = torch.zeros(1, self.batch_size, self.lstm_hidden)
+        cell = torch.zeros(1, self.batch_size, self.lstm_hidden)
+        return hidden, cell
+
 
 def main():
     """Main Function."""
+    # set random seed for reproducibility
+    torch.manual_seed(1)
+
     # hyper-parameters
-    batch_size = 5
+    batch_size = 2
+    lstm_hidden = 4
+    seq_length = 5
 
     # create model object
-    net = CRNN()
+    net = CRNN(batch_size, lstm_hidden, seq_length)
     print(net)
 
     # create inputs
-    inputs = torch.randn(batch_size, 3, 224, 224)
+    inputs = torch.randn(seq_length, batch_size, 3, 224, 224)
     # store in Variables
     inputs = Variable(inputs)
     print('inputs:', inputs.size())
 
-    # initialize 
+    # pass through network
+    output = net.forward(inputs)
+    print('output:', output.size())
+    print(output)
 
-    # pass through model
-    outputs = net.forward(inputs)
-    print('outputs:', outputs.size())
 
 if __name__ == '__main__':
     main()
