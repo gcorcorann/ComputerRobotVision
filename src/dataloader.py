@@ -118,14 +118,14 @@ def get_loaders(labels_path, input_size, batch_size, num_workers):
     @return torch.utils.data.DataLoader for custom dataset
     """
     # data transforms
-    composed = transforms.Compose([
-        Resize((224,224)),
-        Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-        ])
+#    composed = transforms.Compose([
+#        Resize(input_size),
+#        Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+#        ])
     # create dataset
     #TODO add transforms
     attention_dataset = AttentionDataset(labels_path, 
-            transform=None)
+            transform=Resize(input_size))
 
     # split dataset into training and validation
     num_instances = len(attention_dataset)
@@ -154,7 +154,7 @@ def get_loaders(labels_path, input_size, batch_size, num_workers):
 def main():
     """Main Function."""
     labels_path = '/home/gary/datasets/accv/labels_gary.txt'
-    input_size = (224, 224)
+    input_size = (100, 100)
     batch_size = 5
 
     # get DataLoaders
