@@ -78,7 +78,7 @@ class FlowDataset(Dataset):
             data = np.array(data)
             data = data.reshape(-1,2)
 
-#        np.random.shuffle(data)
+        np.random.shuffle(data)
         self.data = data
         self.transform = transform
         self.cap = cv2.VideoCapture()
@@ -200,19 +200,19 @@ def get_loaders(labels_path, input_size, batch_size, num_workers):
     @return torch.utils.data.DataLoader for custom dataset
     """
     # data transforms
-    composed = transforms.Compose([
-        Resize(input_size),
-        Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-        ])
+#    composed = transforms.Compose([
+#        Resize(input_size),
+#        Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+#        ])
     # create dataset
 #    dataset = AttentionDataset(labels_path, transform=composed)
-    dataset = FlowDataset(labels_path, transform=Resize(input_size)) 
+    dataset = FlowDataset(labels_path, transform=Resize(input_size[:2])) 
 
     # split dataset into training and validation
     num_instances = len(dataset)
     indices = list(range(num_instances))
     split = int(np.floor(num_instances * 0.9))
-    train_idx, valid_idx = indices[:split], indices[split:]
+    train_idx, valid_idx = indices[:split][:100], indices[split:][:100]
     train_sampler = SubsetRandomSampler(train_idx)
     valid_sampler = SubsetRandomSampler(valid_idx)
     

@@ -108,8 +108,11 @@ class Network3(nn.Module):
         self.batch_size = batch_size
         self.lstm_hidden = lstm_hidden
         self.seq_length = seq_length
-        # create VGG model
+        # create ResNet model
         self.cnn = models.resnet18()
+        # change first cnn layer for flow (i.e. 2 dimensions)
+        self.cnn.conv1 = nn.Conv2d(2, 64, kernel_size=(7,7), stride=(2,2),
+                padding=(3,3), bias=False)
         self.num_feats = self.cnn.fc.in_features
         # remove last layer
         self.cnn = nn.Sequential(*list(self.cnn.children())[:-1])

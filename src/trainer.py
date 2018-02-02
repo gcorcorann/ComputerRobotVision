@@ -88,15 +88,15 @@ def train_network(dataloaders, network, criterion, optimizer, num_epochs, GPU):
 def main():
     """Main Function."""
     # hyper-parameters
-    GPU = True
+    GPU = torch.cuda.is_available()
     labels_path = '/home/gary/datasets/accv/labels_gary.txt'
-    seq_length = 100
-    input_size = (224,224)
-    num_epochs = 10
+    seq_length = 19
+    input_size = (224,224,2)
+    num_epochs = 20
     batch_size = 10
     rnn_hidden = 128
     num_classes = 4
-    learning_rate = 1e-4
+    learning_rate = 1e-3
     criterion = nn.CrossEntropyLoss()
 
     # create dataloaders object
@@ -106,7 +106,7 @@ def main():
     print('Validation Dataset Batches:', len(dataloaders['Valid']))
 
     # create network and optimizer
-    net = model.Network2(batch_size, rnn_hidden, seq_length)
+    net = model.Network3(batch_size, rnn_hidden, seq_length)
     optimizer = optim.Adam(net.parameters(), learning_rate)
     print(net)
 
