@@ -48,7 +48,7 @@ class Network1(nn.Module):
 
 class Network2(nn.Module):
     """
-    VGGNet + LSTM.
+    PreTrained VGGNet + LSTM.
     """
     def __init__(self, batch_size, lstm_hidden, seq_length):
         """
@@ -62,14 +62,14 @@ class Network2(nn.Module):
         self.lstm_hidden = lstm_hidden
         self.seq_length = seq_length
         # create VGG model
-        self.cnn = models.vgg11_bn()
+        self.cnn = models.vgg16_bn(pretrained=True)
         # remove last layer
         self.cnn.classifier = nn.Sequential(
                 *list(self.cnn.classifier.children())[:-1]
                 )
         # use CNN as feature extractor
-#        for param in self.cnn.parameters():
-#            param.requires_grad = False
+        for param in self.cnn.parameters():
+            param.requires_grad = False
         # lstm layer
         self.lstm = nn.LSTM(self.cnn.classifier[3].out_features, 
                 lstm_hidden, 1)
@@ -146,7 +146,7 @@ def main():
     torch.manual_seed(1)
     
     # hyper-parameters
-    GPU = False
+    GPU = torch.cuda.is_available()
     seq_length = 10
     batch_size = 5
     rnn_hidden = 128
@@ -155,25 +155,45 @@ def main():
 
     # create model object
 #    net = Network1(input_size, batch_size, rnn_hidden, num_classes, seq_length)
-    net = Network3(batch_size, rnn_hidden, seq_length)
+    net = Network2(batch_size, rnn_hidden, seq_length)
     print(net)
     if GPU:
         net = net.cuda()
 
-    # create inputs
+    # create inputs and targets
     inputs = torch.randn(seq_length, batch_size, 3, *input_size)
+    targets = torch.ones(batch_size).type(torch.LongTensor)
     print('inputs:', inputs.size())
+    print('targets:', targets.size())
     # store in Variables
     if GPU:
         inputs = Variable(inputs.cuda())
+        targets = Variable(targets.cuda())
     else:
         inputs = Variable(inputs)
+        targets = Variable(targets)
 
     # pass through network
     output = net.forward(inputs)
-    print('outputs:', output.size())
+    print('output:', output.size())
     print(output)
-    print('Elapsed Time:', time.time()-start)
+
+    # compute loss
+    criterion = nn.CrossEntropyLoss()
+    loss = criterion(output, targets)
+    print('loss:', loss)
+
+    # clear existing gradients
+    net.zero_grad()
+
+    # back propagate
+    loss.backward()
+
+    # update weights
+    params = list(net.lstm.parameters()) + list(net.linear.parameters())
+    optimizer = torch.optim.SGD(params, lr=0.01)
+    optimizer.step()
+
 
 if __name__ == '__main__':
     main()
