@@ -67,7 +67,6 @@ def train_network(dataloaders, network, criterion, optimizer, num_epochs, GPU):
                 dataset_size += inputs.size(0)
                 
             # find size of dataset (numBatches * batchSize)
-            print(dataset_size)
             epoch_loss = running_loss / dataset_size
             epoch_acc = running_correct / dataset_size
             
@@ -92,7 +91,7 @@ def main():
 #    labels_path = '/home/gary/datasets/accv/labels_gary.txt'
 #    seq_length = 19
 #    input_size = (224,224,2)
-    num_epochs = 2
+    num_epochs = 20
     batch_size = 10
 #    rnn_hidden = 128
 #    num_classes = 4
