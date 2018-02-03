@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import numpy as np
 import time
 import torch
 import torch.nn as nn
@@ -36,6 +37,9 @@ def train_network(dataloaders, network, criterion, optimizer, num_epochs, GPU):
             for data in dataloaders[phase]:
                 # get the inputs
                 inputs, labels = data
+                # reformat [numSeq, batchSize, numChannels, Height, Width]
+                inputs = inputs.transpose(1,0)
+                inputs = inputs.unsqueeze(2)
 
                 # wrap in Variable
                 if GPU:
@@ -61,12 +65,10 @@ def train_network(dataloaders, network, criterion, optimizer, num_epochs, GPU):
                     optimizer.step()
 
                 # statistics
-                # TODO inputs.size(1)
-                running_loss += loss.data[0] * inputs.size(0)
+                running_loss += loss.data[0] * inputs.size(1)
                 running_correct += torch.sum(pred == labels.data)
-                dataset_size += inputs.size(0)
+                dataset_size += inputs.size(1)
                 
-            # find size of dataset (numBatches * batchSize)
             epoch_loss = running_loss / dataset_size
             epoch_acc = running_correct / dataset_size
             
@@ -91,10 +93,11 @@ def main():
 #    labels_path = '/home/gary/datasets/accv/labels_gary.txt'
 #    seq_length = 19
 #    input_size = (224,224,2)
-    num_epochs = 20
+    num_epochs = 5
     batch_size = 10
-#    rnn_hidden = 128
-#    num_classes = 4
+    rnn_hidden = 16
+    num_layers = 1
+    num_classes = 10
     learning_rate = 1e-3
     criterion = nn.CrossEntropyLoss()
 
@@ -102,16 +105,26 @@ def main():
     dataloaders = get_loaders(batch_size, num_workers=4)
     print('Training Dataset:', len(dataloaders['Train'].dataset))
     print('Validation Dataset:', len(dataloaders['Valid'].dataset))
+    
+    correct = 0
+    for i in range(len(dataloaders['Valid'].dataset)):
+        _, label = dataloaders['Valid'].dataset[i]
+        y_pred = np.random.randint(num_classes)
+        correct += int(y_pred == label)
+
+    rand_acc = 100 * correct / len(dataloaders['Valid'].dataset)
+
 
     # create network and optimizer
-    net = LeNet5()
+    net = LeNet5(rnn_hidden, num_layers, num_classes)
     print(net)
     optimizer = optim.Adam(net.parameters(), learning_rate)
 
     # train network
     best_acc = train_network(dataloaders, net, criterion, optimizer, 
             num_epochs, GPU)
-#    print('Best Validation Accuracy:', best_acc)
+    print('Random Chance Accuracy:', rand_acc)
+    print('Best Validation Accuracy:', best_acc)
 
 if __name__ == '__main__':
     main()

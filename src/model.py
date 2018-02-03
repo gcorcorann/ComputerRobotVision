@@ -9,25 +9,39 @@ class LeNet5(nn.Module):
     """
     LeNet5.
     """
-    def __init__(self):
+    def __init__(self, rnn_hidden, num_layers, num_classes):
         super().__init__()
-        self.conv1 = nn.Conv2d(3, 6, 5)
+        self.conv1 = nn.Conv2d(1, 10, 5)
         self.pool1 = nn.MaxPool2d(2)
-        self.conv2 = nn.Conv2d(6, 16, 5)
+        self.conv2 = nn.Conv2d(10, 20, 5)
         self.pool2 = nn.MaxPool2d(2)
-        self.fc1 = nn.Linear(16*5*5, 120)
+        self.fc1 = nn.Linear(20*5*5, 120)
         self.fc2 = nn.Linear(120, 84)
-        self.fc3 = nn.Linear(84, 10)
+        self.lstm = nn.LSTM(self.fc2.out_features, rnn_hidden, num_layers)
+        self.linear = nn.Linear(rnn_hidden, num_classes)
 
-    def forward(self, inp):
-        out = self.pool1(F.relu(self.conv1(inp)))
-        out = self.pool2(F.relu(self.conv2(out)))
-        # reshape into [batchSize x numFeats]
-        out = out.view(out.size(0), -1)
-        out = F.relu(self.fc1(out))
-        out = F.relu(self.fc2(out))
-        out = self.fc3(out)
-        return out
+    def forward(self, inputs):
+        # list to hold features
+        feats = []
+        # for each input in sequence
+        for inp in inputs:
+            # pass through CNN
+            out = self.pool1(F.relu(self.conv1(inp)))
+            out = self.pool2(F.relu(self.conv2(out)))
+            # reshape into [batchSize x numFeats]
+            out = out.view(out.size(0), -1)
+            out = F.relu(self.fc1(out))
+            out = F.relu(self.fc2(out))
+            # store in feature list
+            feats.append(out.data)
+
+        # format features and store in Variable
+        feats = torch.cat(feats).view(len(feats), -1, self.fc2.out_features)
+        feats = Variable(feats)
+        # pass through LSTM
+        outputs, _ = self.lstm(feats)
+        outputs = self.linear(outputs[-1, :, :])
+        return outputs
 
 class Network1(nn.Module):
     """
@@ -57,6 +71,7 @@ class Network1(nn.Module):
             out = F.max_pool2d(F.relu(self.conv2(out)), 2)
             out = out.view(-1, 16 * self.n * self.n)
             out = F.relu(self.fc1(out))
+            #TODO add relu
             out = self.fc2(out)
             # store in feature list
             feats.append(out.data)
