@@ -92,11 +92,11 @@ def main():
     labels_path = '/home/gary/datasets/accv/labels_gary.txt'
     seq_length = 19
     input_size = (224,224,2)
-    num_epochs = 20
-    batch_size = 10
+    num_epochs = 50
+    batch_size = 50
     rnn_hidden = 128
     num_classes = 4
-    learning_rate = 1e-3
+    learning_rate = 1e-5
     criterion = nn.CrossEntropyLoss()
 
     # create dataloaders object

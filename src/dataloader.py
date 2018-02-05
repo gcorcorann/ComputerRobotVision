@@ -212,10 +212,9 @@ def get_loaders(labels_path, input_size, batch_size, num_workers):
     num_instances = len(dataset)
     indices = list(range(num_instances))
     split = int(np.floor(num_instances * 0.9))
-    train_idx, valid_idx = indices[:split][:100], indices[split:][:100]
+    train_idx, valid_idx = indices[:split], indices[split:]
     train_sampler = SubsetRandomSampler(train_idx)
     valid_sampler = SubsetRandomSampler(valid_idx)
-    
 
     # check if GPU is available
     gpu = torch.cuda.is_available()
