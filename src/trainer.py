@@ -96,7 +96,7 @@ def main():
     batch_size = 50
     rnn_hidden = 128
     num_classes = 4
-    learning_rate = 1e-5
+    learning_rate = 1e-4
     criterion = nn.CrossEntropyLoss()
 
     # create dataloaders object
