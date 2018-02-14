@@ -37,18 +37,19 @@ class AttentionDataset(Dataset):
         X = []
         y = int(self.data[idx, 1]) - 1
         video_path = self.data[idx, 0]
+        # open video
         self.cap.open(video_path)
-        while self.cap.isOpened():
+        for i in range(100):
             ret, frame = self.cap.read()
             if not ret:
                 break
-
-            # apply transform
-            if self.transform:
-                frame = self.transform(frame)
-
-            # store frame
-            X.append(frame)
+            # sample video 5 frames apart
+            if i != 0 and i % 5 == 0:
+                # apply transform
+                if self.transform:
+                    frame = self.transform(frame)
+                    # store frame
+                    X.append(frame)
 
         # store in ndarray
         X = np.array(X, dtype=np.float32)
@@ -200,19 +201,19 @@ def get_loaders(labels_path, input_size, batch_size, num_workers):
     @return torch.utils.data.DataLoader for custom dataset
     """
     # data transforms
-#    composed = transforms.Compose([
-#        Resize(input_size),
-#        Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-#        ])
+    composed = transforms.Compose([
+        Resize(input_size),
+        Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        ])
     # create dataset
-#    dataset = AttentionDataset(labels_path, transform=composed)
-    dataset = FlowDataset(labels_path, transform=Resize(input_size[:2])) 
+    dataset = AttentionDataset(labels_path, transform=composed)
+#    dataset = FlowDataset(labels_path, transform=Resize(input_size)) 
 
     # split dataset into training and validation
     num_instances = len(dataset)
     indices = list(range(num_instances))
     split = int(np.floor(num_instances * 0.8))
-    train_idx, valid_idx = indices[:split], indices[split:]
+    train_idx, valid_idx = indices[:split][:50], indices[split:][:1]
     train_sampler = SubsetRandomSampler(train_idx)
     valid_sampler = SubsetRandomSampler(valid_idx)
 
@@ -238,6 +239,9 @@ def main():
     """Main Function."""
     import time
 
+    # start timer
+    start = time.time()
+
     labels_path = '/home/gary/datasets/accv/labels_gary.txt'
     input_size = (224, 224)
     batch_size = 10
@@ -246,15 +250,16 @@ def main():
     dataloaders = get_loaders(labels_path, input_size, batch_size,
             num_workers=4)
 
-    print('Training Size:', len(dataloaders['Train']) * batch_size)
-    print('Validation Size:', len(dataloaders['Valid']) * batch_size)
+    print('Training Batches Size:', len(dataloaders['Train']))
+    print('Validation Batches Size:', len(dataloaders['Valid']))
 
-    start = time.time()
+    # go through validation set
     for i, sampled_batch in enumerate(dataloaders['Valid']):
         print(i, sampled_batch['X'].size(), sampled_batch['y'].size())
         if i == 3:
             break
-    print('Elapsed Time:', time.time()-start)
+
+    print('Elapsed Time: {} seconds'.format(time.time()-start))
 
 if __name__ == '__main__':
     main()
