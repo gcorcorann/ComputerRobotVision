@@ -97,9 +97,9 @@ def main():
     GPU = torch.cuda.is_available()
     labels_path = '/home/gary/datasets/accv/labels_gary.txt'
     seq_length = 19
-    input_size = (224,224,2)
-    num_epochs = 1
-    batch_size = 10
+    input_size = (224,224)
+    num_epochs = 2
+    batch_size = 50
     rnn_hidden = 128
     num_classes = 4
     learning_rate = 1e-4
@@ -112,8 +112,10 @@ def main():
     print('Validation Dataset Batches:', len(dataloaders['Valid']))
 
     # create network and optimizer
-    net = model.Network3(batch_size, rnn_hidden, seq_length)
-    optimizer = optim.Adam(net.parameters(), learning_rate)
+    net = model.Network2(batch_size, rnn_hidden, seq_length)
+    params = list(net.lstm.parameters()) + list(net.linear.parameters())
+#    params = net.parameters()
+    optimizer = optim.Adam(params, learning_rate)
     print(net)
 
     # train network

@@ -71,8 +71,7 @@ class Network1(nn.Module):
             out = F.max_pool2d(F.relu(self.conv2(out)), 2)
             out = out.view(-1, 16 * self.n * self.n)
             out = F.relu(self.fc1(out))
-            #TODO add relu
-            out = self.fc2(out)
+            out = F.relu(self.fc2(out))
             # store in feature list
             feats.append(out.data)
 
@@ -236,7 +235,8 @@ def main():
         loss.backward()
     
         # update weights
-        params = list(net.lstm.parameters()) + list(net.linear.parameters())
+        params = net.parameters()
+#        params = list(net.lstm.parameters()) + list(net.linear.parameters())
         optimizer = torch.optim.SGD(params, lr=0.01)
         optimizer.step()
 
