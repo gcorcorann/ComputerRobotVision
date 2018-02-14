@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import time
+import copy
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -13,6 +14,7 @@ def train_network(dataloaders, network, criterion, optimizer, num_epochs, GPU):
         network = network.cuda()
 
     # store best validation accuracy
+    best_model_wts = copy.deepcopy(network.state_dict())
     best_acc = 0.0
 
     for epoch in range(num_epochs):
@@ -74,8 +76,10 @@ def train_network(dataloaders, network, criterion, optimizer, num_epochs, GPU):
             print('{} Loss: {:.4f} Acc: {:.4f}'.format(
                 phase, epoch_loss, epoch_acc))
 
+            # deep copy the model
             if phase == 'Valid' and epoch_acc > best_acc:
                 best_acc = epoch_acc
+                best_model_wts = copy.deepcopy(network.state_dict())
 
         # print elapsed time
         time_elapsed = time.time() - start
@@ -83,7 +87,9 @@ def train_network(dataloaders, network, criterion, optimizer, num_epochs, GPU):
         time_elapsed // 60, time_elapsed % 60))
         print()
 
-    return best_acc
+    # load the best model weights
+    network.load_state_dict(best_model_wts)
+    return network, best_acc
 
 def main():
     """Main Function."""
@@ -92,8 +98,8 @@ def main():
     labels_path = '/home/gary/datasets/accv/labels_gary.txt'
     seq_length = 19
     input_size = (224,224,2)
-    num_epochs = 50
-    batch_size = 50
+    num_epochs = 1
+    batch_size = 10
     rnn_hidden = 128
     num_classes = 4
     learning_rate = 1e-4
@@ -111,7 +117,7 @@ def main():
     print(net)
 
     # train network
-    best_acc = train_network(dataloaders, net, criterion, optimizer, 
+    net, best_acc = train_network(dataloaders, net, criterion, optimizer, 
             num_epochs, GPU)
     print('Best Validation Accuracy:', best_acc)
 
