@@ -189,21 +189,21 @@ def main():
     
     # hyper-parameters
     GPU = torch.cuda.is_available()
-    seq_length = 10
+    num_epochs = 5
+    seq_length = 19
     batch_size = 5
     rnn_hidden = 128
     num_classes = 4
     input_size = (224,224)
 
     # create model object
-#    net = Network1(input_size, batch_size, rnn_hidden, num_classes, seq_length)
-    net = Network2(batch_size, rnn_hidden, seq_length)
+    net = Network3(batch_size, rnn_hidden, seq_length)
     print(net)
     if GPU:
         net = net.cuda()
 
     # create inputs and targets
-    inputs = torch.randn(seq_length, batch_size, 3, *input_size)
+    inputs = torch.randn(seq_length, batch_size, 2, *input_size)
     targets = torch.ones(batch_size).type(torch.LongTensor)
     print('inputs:', inputs.size())
     print('targets:', targets.size())
@@ -215,26 +215,34 @@ def main():
         inputs = Variable(inputs)
         targets = Variable(targets)
 
-    # pass through network
-    output = net.forward(inputs)
-    print('output:', output.size())
-    print(output)
+    # training
+    for epoch in range(num_epochs):
+        print('Epoch {}/{}'.format(epoch+1, num_epochs))
 
-    # compute loss
-    criterion = nn.CrossEntropyLoss()
-    loss = criterion(output, targets)
-    print('loss:', loss)
+        # pass through network
+        output = net.forward(inputs)
+        print('output:', output.size())
+        print(output)
+    
+        # compute loss
+        criterion = nn.CrossEntropyLoss()
+        loss = criterion(output, targets)
+        print('loss:', loss)
+    
+        # clear existing gradients
+        net.zero_grad()
+    
+        # back propagate
+        loss.backward()
+    
+        # update weights
+        params = list(net.lstm.parameters()) + list(net.linear.parameters())
+        optimizer = torch.optim.SGD(params, lr=0.01)
+        optimizer.step()
 
-    # clear existing gradients
-    net.zero_grad()
-
-    # back propagate
-    loss.backward()
-
-    # update weights
-    params = list(net.lstm.parameters()) + list(net.linear.parameters())
-    optimizer = torch.optim.SGD(params, lr=0.01)
-    optimizer.step()
+    time_elapsed = time.time() - start
+    print('Elapsed Time: {:.0f}m {:.0f}s'.format(time_elapsed // 60,
+        time_elapsed % 60))
 
 
 if __name__ == '__main__':
