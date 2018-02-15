@@ -131,6 +131,43 @@ class Network2(nn.Module):
         outputs = self.linear(outputs[-1])
         return outputs
 
+class VGG(nn.Module):
+    """
+    Pretrained VGG Net with LSTM.
+    """
+    def __init__(self, rnn_hidden, rnn_layers):
+        super().__init__()
+        self.cnn = models.vgg19_bn(pretrained=True)
+        # number of input features of last layer of cnn
+        num_ftrs = self.cnn.classifier[6].in_features
+        # remove last layer
+        self.cnn.classifier = nn.Sequential(
+                *list(self.cnn.classifier.children())[:-1]
+                )
+        for param in self.cnn.parameters():
+            param.requires_grad = False
+
+        # add lstm layer
+        self.lstm = nn.LSTM(num_ftrs, rnn_hidden, rnn_layers)
+        # add linear layer
+        self.fc = nn.Linear(rnn_hidden, 4)
+
+    def forward(self, inputs):
+        # list to hold features
+        feats = []
+        # for each input in sequence
+        for inp in inputs:
+            print('inp:', inp.size())
+            # pass through cnn
+            feats.append(self.cnn.forward(inp))
+        
+        # format features and store in Variable
+        feats = torch.stack(feats)
+        # pass through LSTM
+        outputs, _ = self.lstm(feats)
+        outputs = self.fc(outputs[-1])
+        return outputs
+
 class Network3(nn.Module):
     """
     ResNet + LSTM.
@@ -178,6 +215,34 @@ class Network3(nn.Module):
         outputs = self.linear(outputs[-1])
         return outputs
 
+class Res(nn.Module):
+    """
+    Pretrained ResNet.
+    """
+    def __init__(self):
+        super().__init__()
+        self.cnn = models.resnet18(pretrained=True)
+        for param in self.cnn.parameters():
+            param.requires_grad = False
+        num_ftrs = self.cnn.fc.in_features
+        self.cnn.fc = nn.Linear(num_ftrs, 2)
+
+    def forward(self, inputs):
+        outputs = self.cnn.forward(inputs)
+        return outputs
+
+class VGG2(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.cnn = models.vgg16_bn(pretrained=True)
+        for param in self.cnn.parameters():
+            param.requires_grad = False
+
+    def forward(self, inputs):
+        return self.cnn.forward(inputs)
+
+
+
 def main():
     import time
 
@@ -188,24 +253,25 @@ def main():
     
     # hyper-parameters
     GPU = torch.cuda.is_available()
-    num_epochs = 5
+    num_epochs = 2
     seq_length = 19
-    batch_size = 5
-    rnn_hidden = 128
-    num_classes = 4
+    batch_size = 30
     input_size = (224,224)
+    rnn_hidden = 128
+    rnn_layers = 1
 
     # create model object
-    net = Network3(batch_size, rnn_hidden, seq_length)
+    net = VGG(rnn_hidden, rnn_layers)
     print(net)
     if GPU:
         net = net.cuda()
 
     # create inputs and targets
-    inputs = torch.randn(seq_length, batch_size, 2, *input_size)
+    inputs = torch.randn(seq_length, batch_size, 3, *input_size)
     targets = torch.ones(batch_size).type(torch.LongTensor)
     print('inputs:', inputs.size())
     print('targets:', targets.size())
+    print('')
     # store in Variables
     if GPU:
         inputs = Variable(inputs.cuda())
@@ -217,16 +283,17 @@ def main():
     # training
     for epoch in range(num_epochs):
         print('Epoch {}/{}'.format(epoch+1, num_epochs))
+        print('-' * 10)
 
         # pass through network
         output = net.forward(inputs)
         print('output:', output.size())
-        print(output)
     
         # compute loss
         criterion = nn.CrossEntropyLoss()
         loss = criterion(output, targets)
-        print('loss:', loss)
+        print('loss:', loss.data[0])
+        print('')
     
         # clear existing gradients
         net.zero_grad()
@@ -235,15 +302,17 @@ def main():
         loss.backward()
     
         # update weights
-        params = net.parameters()
-#        params = list(net.lstm.parameters()) + list(net.linear.parameters())
+        params = list(net.lstm.parameters()) + list(net.fc.parameters())
         optimizer = torch.optim.SGD(params, lr=0.01)
         optimizer.step()
 
     time_elapsed = time.time() - start
-    print('Elapsed Time: {:.0f}m {:.0f}s'.format(time_elapsed // 60,
-        time_elapsed % 60))
+    print('Elapsed Training Time: {:.0f}m {:.0f}s'.format(
+        time_elapsed // 60, time_elapsed % 60))
 
+    # save and load only the model parameters
+    torch.save(net.state_dict(), 'params.pkl')
+    net.load_state_dict(torch.load('params.pkl'))
 
 if __name__ == '__main__':
     main()
