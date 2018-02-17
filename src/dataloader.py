@@ -7,6 +7,7 @@ import numbers
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.sampler import SubsetRandomSampler
+import torchvision
 from torchvision import transforms
 
 class AttentionDataset(Dataset):
@@ -53,19 +54,18 @@ class AttentionDataset(Dataset):
 
         # store in ndarray
         X = np.array(X, dtype=np.float32)
+        # transform data
+        if self.transform:
+            X = self.transform(X)
+
         # store in sample
         sample = {'X': X, 'y': y}
-        # transform sample
-        if self.transform:
-            sample = self.transform(sample)
-
         # release video capture device
         self.cap.release()
         return sample
 
-class Rescale():
-    """
-    Rescale the video in a sample to a given size.
+class Resize():
+    """Resize frames in video sequence to a given size.
 
     Args:
         output_size (tuple): Desired output size.
@@ -74,8 +74,14 @@ class Rescale():
         assert isinstance(output_size, tuple)
         self.output_size = output_size
 
-    def __call__(self, sample):
-        video, label = sample['X'], sample['y']
+    def __call__(self, video):
+        """
+        Args:
+            video (ndarray): Video to be resized.
+
+        Returns:
+            ndarray: Resized video.
+        """
         # hold transformed video
         video_new = np.zeros(
                 (video.shape[0], *self.output_size, video.shape[3]),
@@ -85,10 +91,11 @@ class Rescale():
         for idx, frame in enumerate(video):
             frame = cv2.resize(frame, self.output_size)
             video_new[idx] = frame
-        return {'X': video_new, 'y': label}
+
+        return video_new
 
 class CenterCrop():
-    """Crops given video sequence at the center.
+    """Crop frames in video sequence at the center.
 
     Args:
         output_size (tuple): Desired output size of crop.
@@ -98,15 +105,14 @@ class CenterCrop():
         assert isinstance(output_size, tuple)
         self.output_size = output_size
 
-    def __call__(self, sample):
+    def __call__(self, video):
         """
         Args:
-            sample (dictionary): sample['X'] contains video to be cropped.
+            video (ndarray): Video to be center-cropped.
         
         Returns:
-            dictionary: sample['X'] contains cropped video.
+            ndarray: Center-cropped video.
         """
-        video, label = sample['X'], sample['y']
         # hold transformed video
         video_new = np.zeros(
                 (video.shape[0], *self.output_size, video.shape[3]),
@@ -121,10 +127,10 @@ class CenterCrop():
             frame = frame[top: top + new_h, left: left + new_w]
             video_new[idx] = frame
 
-        return {'X': video_new, 'y': label}
+        return video_new
         
 class RandomCrop():
-    """Crop randomly the video in a sample.
+    """Crop randomly the frames in a video sequence.
 
     Args:
         output_size (tuple): Desired output size.
@@ -133,8 +139,14 @@ class RandomCrop():
         assert isinstance(output_size, tuple)
         self.output_size = output_size
 
-    def __call__(self, sample):
-        video, label = sample['X'], sample['y']
+    def __call__(self, video):
+        """
+        Args:
+            video (ndarray): Video to be cropped.
+
+        Returns:
+            ndarray: Cropped video.
+        """
         # hold transformed video
         video_new = np.zeros(
                 (video.shape[0], *self.output_size, video.shape[3]),
@@ -149,10 +161,10 @@ class RandomCrop():
             frame = frame[top: top + new_h, left: left + new_w]
             video_new[idx] = frame
 
-        return {'X': video_new, 'y': label}
+        return video_new
 
 class RandomHorizontalFlip():
-    """Horizontally flip the video in a sample.
+    """Horizontally flip a video sequence.
 
     Args:
         p (float): Probability of image being flipped. Default value is 0.5.
@@ -160,15 +172,14 @@ class RandomHorizontalFlip():
     def __init__(self, p=0.5):
         self.p = p
 
-    def __call__(self, sample):
+    def __call__(self, video):
         """
         Args:
             video (ndarray): Video to be flipped.
 
         Returns:
-            ndarry: Randomly flipped video.
+            ndarray: Randomly flipped video.
         """
-        video, label = sample['X'], sample['y']
         # check to perform flip
         if random.random() < self.p:
             # hold transformed video
@@ -178,9 +189,9 @@ class RandomHorizontalFlip():
                 frame = cv2.flip(frame, 1)
                 video_new[idx] = frame
 
-            return {'X': video_new, 'y': label}
+            return video_new
 
-        return {'X': video, 'y': label}
+        return video
 
 class RandomRotation():
     """Rotate video sequence by an angle.
@@ -193,78 +204,118 @@ class RandomRotation():
         assert isinstance(degrees, numbers.Real)
         self.degrees = degrees
 
-    def __call__(self, sample):
-        video, label = sample['X'], sample['y']
+    def __call__(self, video):
+        """
+        Args:
+            video (ndarray): Video to be rotated.
+
+        Returns:
+            ndarray: Randomly rotated video.
+        """
         # hold transformed video
         video_new = np.zeros_like(video)
         h, w = video.shape[1:3]
         # random rotation
         angle = np.random.uniform(-self.degrees, self.degrees)
+        # create rotation matrix with center point at the center of frame
         M = cv2.getRotationMatrix2D((w//2,h//2), angle, 1)
         # rotate each frame
         for idx, frame in enumerate(video):
             frame = cv2.warpAffine(frame, M, (w,h))
             video_new[idx] = frame
         
-        return {'X': video_new, 'y': label}
+        return video_new
+
+class Normalize():
+    """Normalize video with mean and standard deviation.
+    Given mean: ``(M1,...,Mn)`` and std: ``(S1,..,Sn)`` for ``n`` channels, this
+    transform will normalize each channge of the input video.
+
+    Args:
+        mean (list): Sequence of means for each channel.
+        std (list): Sequence of standard deviations for each channel.
+    """
+
+    def __init__(self, mean, std):
+        assert isinstance(mean, list)
+        assert isinstance(std, list)
+        self.mean = np.array(mean, dtype=np.float32)
+        self.std = np.array(std, dtype=np.float32)
+        # reverse order since images are read with opencv (i.e. BGR)
+        self.mean = np.flip(self.mean, 0)
+        self.std = np.flip(self.std, 0)
+
+    def __call__(self, video):
+        """
+        Args:
+            video (ndarray): Video to be normalized
+
+        Returns:
+            ndarray: Normalized video.
+        """
+        video = video / 255
+        video = (video - self.mean) / self.std
+        video = np.transpose(video, (0,3,1,2))
+        return video
 
 
 def main():
     """Main Function."""
+    import time
+
     labels_path = '/home/gary/datasets/accv/labels_gary.txt'
+    batch_size = 5
+
+    # data augmentation and normalization for training
+    # just normalization for validation
+    data_transforms = {
+            'Train': transforms.Compose([
+                Resize((256,256)),
+                RandomCrop((224,224)),
+                RandomHorizontalFlip(),
+                RandomRotation(15),
+                Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+                ]),
+            'Valid': transforms.Compose([
+                Resize((256,256)),
+                CenterCrop((224,224)),
+                Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+                ])
+            }
 
     # create dataset object
-    dataset = AttentionDataset(labels_path)
+    dataset = AttentionDataset(labels_path, data_transforms['Train'])
+    dataloader = DataLoader(dataset, batch_size, 
+            shuffle=False, num_workers=4)
 
-    # create transforms
-    rescale = Rescale((256,256))
-    randomcrop = RandomCrop((224,224))
-    randomflip = RandomHorizontalFlip()
-    centercrop = CenterCrop((224,224))
-    randomrotate = RandomRotation(30)
+    def imshow(inp, title=None):
+        """Imshow for Tensor."""
+        inp = inp.numpy().transpose((1,2,0))
+        # convert from BGR to RGB
+        inp = cv2.cvtColor(inp, cv2.COLOR_BGR2RGB)
+        mean = np.array([0.485, 0.456, 0.406])
+        std = np.array([0.229, 0.224, 0.225])
+        inp = std * inp + mean
+        inp = np.clip(inp, 0, 1)
+        plt.imshow(inp)
+        if title is not None:
+            plt.title(title)
 
-    # extract single sample
-    sample = dataset[65]
+    # get a bunch of training data
+    sampled_batch = next(iter(dataloader))
+    data, labels = sampled_batch['X'], sampled_batch['y']
 
-    # apply transforms
-    sample_scale = rescale(sample)
-    sample_crop = randomcrop(sample_scale)
-    sample_flip = randomflip(sample_crop)
-    sample_center = centercrop(sample_scale)
-    sample_rotate = randomrotate(sample_flip)
+    classes = ['Low Attention', 'Medium Attention', 'High Attention', 
+    'Very High Attention']
+    print(classes)
 
-    plt.figure(figsize=(25,20))
-    for i in range(5):
-        plt.subplot(5, 5, i+1)
-        frame = sample_scale['X'][i]
-        plt.imshow(np.uint8(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)))
-        plt.title('Scaled')
-
-    for i in range(5):
-        plt.subplot(5, 5, 5+i+1)
-        frame = sample_crop['X'][i]
-        plt.imshow(np.uint8(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)))
-        plt.title('Random Crop')
-
-    for i in range(5):
-        plt.subplot(5, 5, 10+i+1)
-        frame = sample_flip['X'][i]
-        plt.imshow(np.uint8(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)))
-        plt.title('Flip')
-
-    for i in range(5):
-        plt.subplot(5, 5, 15+i+1)
-        frame = sample_center['X'][i]
-        plt.imshow(np.uint8(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)))
-        plt.title('Center Crop')
-
-    for i in range(5):
-        plt.subplot(5, 5, 20+i+1)
-        frame = sample_rotate['X'][i]
-        plt.imshow(np.uint8(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)))
-        plt.title('Rotate')
-
+    plt.figure()
+    for i in range(batch_size):
+        out = torchvision.utils.make_grid(data[i], nrow=10)
+        plt.subplot(batch_size, 1, i+1), imshow(out, classes[labels[i]])
+        plt.xticks([]), plt.yticks([])
     plt.show()
+
 
 #class FlowDataset(Dataset):
 #    """
@@ -348,51 +399,6 @@ def main():
 #        self.cap.release()
 #        return sample
 #
-#class Resize():
-#    """
-#    Resizes the image to a given size.
-#
-#    @param  output_size:    expected output image size
-#                                @pre: tuple
-#
-#    @return image:          resized image
-#    """
-#    def __init__(self, output_size):
-#        assert isinstance(output_size, tuple)
-#        self.output_size = output_size
-#
-#    def __call__(self, image):
-#        image = cv2.resize(image, self.output_size)
-#        return image
-#
-#class Normalize():
-#    """
-#    Rescales image to [0-1], normalizes across channels with given mean and
-#    standard deviation and returns image in RGB formate.
-#
-#    @param  mu:     channel means
-#                        @pre: list
-#    @param  std:    channel standard deviation
-#                        @pre: list
-#
-#    @return image:  normalized image
-#    """
-#    def __init__(self, mu, std):
-#        assert isinstance(mu, list)
-#        assert isinstance(std, list)
-#        self.mu = mu
-#        self.std = std
-#
-#    def __call__(self, image):
-#        image = image / 255
-#        b, g, r = cv2.split(image)
-#        # normalize image
-#        b = (b - self.mu[2]) / self.std[2]
-#        g = (g - self.mu[1]) / self.std[1]
-#        r = (r - self.mu[0]) / self.std[0]
-#        # combine into RGB format
-#        image = cv2.merge((r, g, b))
-#        return image
 #
 #def get_loaders(labels_path, input_size, batch_size, num_workers):
 #    """
