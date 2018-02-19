@@ -1,4 +1,4 @@
 src/__pycache__
-src/data/
 src/.ipynb_checkpoints/
 src/.*.py.swp
+data/
