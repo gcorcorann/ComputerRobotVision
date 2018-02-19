@@ -94,16 +94,17 @@ class FlowDataset(Dataset):
         return sample
 
 class AttentionDataset(Dataset):
+    """Attention Level Dataset.
+    
+    Args:
+        labels_path (string): path to text file with annotations
+        transform (callable): transform to be applied on image
+
+    Returns:
+        torch.utils.data.Dataset: dataset object
     """
-    Attention Level Dataset.
-    """
+
     def __init__(self, labels_path, transform=None):
-        """
-        @param  labels_path:    path to text file with annotations
-                                    @pre: string
-        @param  transform:     optional transform to be applied on image
-                                    @pre: callable
-        """
         # read video paths and labels
         with open(labels_path, 'r') as f:
             data = f.read()
@@ -131,7 +132,7 @@ class AttentionDataset(Dataset):
             if not ret:
                 break
             # sample video 5 frames apart
-            if i % 10 == 0:
+            if i % 5 == 0:
                 # store frame
                 X.append(frame)
 
@@ -379,9 +380,9 @@ def get_loaders(labels_path, batch_size, num_workers, gpu):
     num_instances = len(datasets['Train'])
     indices = list(range(num_instances))
     split = math.floor(num_instances * 0.8)
-    train_indices, valid_indices = indices[:split][:10], indices[split:][:10]
-    samplers = {'Train': SubsetRandomSampler(indices[:split]),
-                'Valid': SubsetRandomSampler(indices[split:])}
+    train_indices, valid_indices = indices[:split][:20], indices[split:][:1]
+    samplers = {'Train': SubsetRandomSampler(train_indices),
+                'Valid': SubsetRandomSampler(valid_indices)}
     
     # dataset sizes
     dataset_sizes = {'Train': len(train_indices),
@@ -414,10 +415,13 @@ def main():
     print(dataset_sizes)
     print()
 
+    for data in dataloaders['Train']:
+        print(data['X'].size())
+
     def imshow(inp, title=None):
         """Imshow for Tensor."""
         inp = inp.numpy().transpose((1,2,0))
-        # convert from BGR to RGB
+       # convert from BGR to RGB
         inp = cv2.cvtColor(inp, cv2.COLOR_BGR2RGB)
         mean = np.array([0.485, 0.456, 0.406])
         std = np.array([0.229, 0.224, 0.225])
@@ -437,7 +441,7 @@ def main():
 
     plt.figure()
     for i in range(batch_size):
-        out = torchvision.utils.make_grid(data[i], nrow=10)
+        out = torchvision.utils.make_grid(data[i], nrow=20)
         plt.subplot(batch_size, 1, i+1), imshow(out, classes[labels[i]])
         plt.xticks([]), plt.yticks([])
 
