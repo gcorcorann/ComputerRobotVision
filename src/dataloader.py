@@ -352,6 +352,7 @@ def get_loaders(labels_path, batch_size, num_workers, gpu):
 
     Returns:
         torch.utils.data.DataLoader: dataloader for custom dataset
+        dictionarny: dataset length for training and validation
     """
     # data augmentation and normalization for training
     # just normalization for validation
@@ -378,9 +379,13 @@ def get_loaders(labels_path, batch_size, num_workers, gpu):
     num_instances = len(datasets['Train'])
     indices = list(range(num_instances))
     split = math.floor(num_instances * 0.8)
-    train_indices, valid_indices = indices[:split], indices[split]
+    train_indices, valid_indices = indices[:split][:10], indices[split:][:10]
     samplers = {'Train': SubsetRandomSampler(indices[:split]),
                 'Valid': SubsetRandomSampler(indices[split:])}
+    
+    # dataset sizes
+    dataset_sizes = {'Train': len(train_indices),
+                     'Valid': len(valid_indices)}
 
     # create dataloders
     dataloaders = {
@@ -390,7 +395,7 @@ def get_loaders(labels_path, batch_size, num_workers, gpu):
             for x in ['Train', 'Valid']
             }
 
-    return dataloaders
+    return dataloaders, dataset_sizes
 
 def main():
     """Main Function."""
@@ -403,7 +408,11 @@ def main():
     gpu = torch.cuda.is_available()
 
     # dictionary of dataloaders
-    dataloaders = get_loaders(labels_path, batch_size, num_workers, gpu)
+    dataloaders, dataset_sizes = get_loaders(labels_path, batch_size, 
+            num_workers, gpu)
+    print('Dataset Sizes:')
+    print(dataset_sizes)
+    print()
 
     def imshow(inp, title=None):
         """Imshow for Tensor."""
