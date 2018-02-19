@@ -132,9 +132,13 @@ class Network2(nn.Module):
         return outputs
 
 class VGG(nn.Module):
+    """Pretrained VGG Net with LSTM.
+
+    Args:
+        rnn_hidden (int): number of hidden units in each rnn layer.
+        rnn_layers (int): number of layers in rnn model.
     """
-    Pretrained VGG Net with LSTM.
-    """
+
     def __init__(self, rnn_hidden, rnn_layers):
         super().__init__()
         self.cnn = models.vgg19_bn(pretrained=True)
@@ -153,11 +157,20 @@ class VGG(nn.Module):
         self.fc = nn.Linear(rnn_hidden, 4)
 
     def forward(self, inputs):
+        """Forward pass through network.
+
+        Args:
+            inputs (torch.Tensor): tensor of dimensions
+                [numSeqs x batchSize x numChannels x Width x Height]
+
+        Returns:
+            torch.Tensor: final output of dimensions
+                [batchSize x numClasses]
+        """
         # list to hold features
         feats = []
         # for each input in sequence
         for inp in inputs:
-            print('inp:', inp.size())
             # pass through cnn
             feats.append(self.cnn.forward(inp))
         
@@ -240,8 +253,6 @@ class VGG2(nn.Module):
 
     def forward(self, inputs):
         return self.cnn.forward(inputs)
-
-
 
 def main():
     import time
