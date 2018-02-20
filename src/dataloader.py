@@ -132,7 +132,7 @@ class AttentionDataset(Dataset):
             if not ret:
                 break
             # sample video 5 frames apart
-            if i % 5 == 0:
+            if i % 10 == 0:
                 # store frame
                 X.append(frame)
 
@@ -380,7 +380,7 @@ def get_loaders(labels_path, batch_size, num_workers, gpu):
     num_instances = len(datasets['Train'])
     indices = list(range(num_instances))
     split = math.floor(num_instances * 0.8)
-    train_indices, valid_indices = indices[:split][:20], indices[split:][:1]
+    train_indices, valid_indices = indices[:split][:20], indices[split:][:20]
     samplers = {'Train': SubsetRandomSampler(train_indices),
                 'Valid': SubsetRandomSampler(valid_indices)}
     
@@ -415,8 +415,8 @@ def main():
     print(dataset_sizes)
     print()
 
-    for data in dataloaders['Train']:
-        print(data['X'].size())
+#    for data in dataloaders['Train']:
+#        print(data['X'].size())
 
     def imshow(inp, title=None):
         """Imshow for Tensor."""
@@ -432,7 +432,7 @@ def main():
             plt.title(title)
 
     # retrieve a batch of training data
-    train_batch = next(iter(dataloaders['Valid']))
+    train_batch = next(iter(dataloaders['Train']))
     data, labels = train_batch['X'], train_batch['y']
 
     classes = ['Low Attention', 'Medium Attention', 
@@ -441,6 +441,7 @@ def main():
 
     plt.figure()
     for i in range(batch_size):
+        print(data[i])
         out = torchvision.utils.make_grid(data[i], nrow=20)
         plt.subplot(batch_size, 1, i+1), imshow(out, classes[labels[i]])
         plt.xticks([]), plt.yticks([])
