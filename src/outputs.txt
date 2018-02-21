@@ -1,0 +1,8 @@
+Training Dataset: 1400
+Validation Dataset: 350
+
+Training Parameters:
+learning_rate: 0.001, rnn_hidden: 64, rnn_layer: 1
+
+Epoch 1/20
+----------
