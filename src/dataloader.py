@@ -97,14 +97,15 @@ class AttentionDataset(Dataset):
     """Attention Level Dataset.
     
     Args:
-        labels_path (string): path to text file with annotations
-        transform (callable): transform to be applied on image
+        labels_path (string):   path to text file with annotations
+        frame_sample (int):     sample video every `frame_sample`
+        transform (callable):   transform to be applied on image
 
     Returns:
         torch.utils.data.Dataset: dataset object
     """
 
-    def __init__(self, labels_path, transform=None):
+    def __init__(self, labels_path, frame_sample, transform=None):
         # read video paths and labels
         with open(labels_path, 'r') as f:
             data = f.read()
@@ -114,6 +115,7 @@ class AttentionDataset(Dataset):
         
         np.random.shuffle(data)
         self.data = data
+        self.frame_sample = frame_sample
         self.transform = transform
         self.cap = cv2.VideoCapture()
     
@@ -131,8 +133,8 @@ class AttentionDataset(Dataset):
             ret, frame = self.cap.read()
             if not ret:
                 break
-            # sample video 5 frames apart
-            if i % 10 == 0:
+            # sample video 'frame_sample' frames apart
+            if i % self.frame_sample == 0:
                 # store frame
                 X.append(frame)
 
@@ -342,18 +344,20 @@ class Normalize():
         video = np.transpose(video, (0,3,1,2))
         return video
 
-def get_loaders(labels_path, batch_size, num_workers, gpu):
+def get_loaders(labels_path, batch_size, frame_sample, num_workers, gpu):
     """Return dictionary of torch.utils.data.DataLoader.
 
     Args:
-        labels_path (string): path to text file with annotations
-        batch_size (int): number of instances in batch
-        num_workers (int): number of subprocesses used for data loading
-        gpu (bool): presence of gpu
+        labels_path (string):   path to text file with annotations
+        batch_size (int):       number of instances in batch
+        frame_sample (int):     sample video every `frame_sample`
+        num_workers (int):      number of subprocesses used for data loading
+        gpu (bool):             presence of gpu
 
     Returns:
-        torch.utils.data.DataLoader: dataloader for custom dataset
-        dictionarny: dataset length for training and validation
+        torch.utils.data.DataLoader:    dataloader for custom dataset
+        dictionary:                    dataset length for training and 
+                                            validation
     """
     # data augmentation and normalization for training
     # just normalization for validation
@@ -373,14 +377,15 @@ def get_loaders(labels_path, batch_size, num_workers, gpu):
             }
 
     # create dataset object
-    datasets = {x: AttentionDataset(labels_path, data_transforms[x])
-            for x in ['Train', 'Valid']}
+    datasets = {x: AttentionDataset(
+        labels_path, frame_sample, data_transforms[x]
+        ) for x in ['Train', 'Valid']}
 
     # random split for training and validation
     num_instances = len(datasets['Train'])
     indices = list(range(num_instances))
     split = math.floor(num_instances * 0.8)
-    train_indices, valid_indices = indices[:split][:20], indices[split:][:20]
+    train_indices, valid_indices = indices[:split], indices[split:]
     samplers = {'Train': SubsetRandomSampler(train_indices),
                 'Valid': SubsetRandomSampler(valid_indices)}
     
@@ -396,6 +401,7 @@ def get_loaders(labels_path, batch_size, num_workers, gpu):
             for x in ['Train', 'Valid']
             }
 
+
     return dataloaders, dataset_sizes
 
 def main():
@@ -405,18 +411,16 @@ def main():
     # hyperparameters
     labels_path = '/home/gary/datasets/accv/labels_med.txt'
     batch_size = 5
+    frame_sample = 10
     num_workers = 8
     gpu = torch.cuda.is_available()
 
     # dictionary of dataloaders
     dataloaders, dataset_sizes = get_loaders(labels_path, batch_size, 
-            num_workers, gpu)
+            frame_sample, num_workers, gpu)
     print('Dataset Sizes:')
     print(dataset_sizes)
     print()
-
-#    for data in dataloaders['Train']:
-#        print(data['X'].size())
 
     def imshow(inp, title=None):
         """Imshow for Tensor."""
@@ -432,7 +436,7 @@ def main():
             plt.title(title)
 
     # retrieve a batch of training data
-    train_batch = next(iter(dataloaders['Train']))
+    train_batch = next(iter(dataloaders['Valid']))
     data, labels = train_batch['X'], train_batch['y']
 
     classes = ['Low Attention', 'Medium Attention', 
@@ -441,7 +445,6 @@ def main():
 
     plt.figure()
     for i in range(batch_size):
-        print(data[i])
         out = torchvision.utils.make_grid(data[i], nrow=20)
         plt.subplot(batch_size, 1, i+1), imshow(out, classes[labels[i]])
         plt.xticks([]), plt.yticks([])
