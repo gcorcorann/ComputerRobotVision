@@ -42,9 +42,7 @@ class AttentionDataset(Dataset):
     def __getitem__(self, idx):
         video_path = self.data[idx, 0]
         y = int(self.data[idx, 1]) - 1
-        # change video path to read numpy array
-        vid_new = video_path[:33] + '_nd/' + video_path[34:40] + '.npy'
-        X = np.load(vid_new)
+        X = np.load(video_path)
         # sample video
         X_sample = X[::self.frame_sample]
         # transform data
@@ -240,6 +238,7 @@ class Normalize():
         """
         video = video / 255
         video = (video - self.mean) / self.std
+        #TODO remove transpose and place in dataset class
         video = np.transpose(video, (0,3,1,2))
         video = np.asarray(video, dtype=np.float32)
         return video
@@ -307,29 +306,14 @@ def main():
     import time
 
     # hyperparameters
-    labels_path = '/home/gary/datasets/accv/labels_med.txt'
-    batch_size = 5
-    frame_sample = 10
-    num_workers = 8
+    labels_path = '/usr/local/faststorage/gcorc/accv/labels_med.txt'
+    batch_size = 50
+    frame_sample = 1
+    num_workers = 0
     gpu = torch.cuda.is_available()
 
     # start timer
     start = time.time()
-
-    data_transforms = {
-            'Train': transforms.Compose([
-                Resize((256,256)),
-                RandomCrop((224,224)),
-                RandomHorizontalFlip(),
-                RandomRotation(15),
-                Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-                ]),
-            'Valid': transforms.Compose([
-                Resize((256,256)),
-                CenterCrop((224,224)),
-                Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-                ])
-            }
 
     # dictionary of dataloaders
     dataloaders, dataset_sizes = get_loaders(labels_path, batch_size, 
@@ -338,36 +322,51 @@ def main():
     print(dataset_sizes)
     print()
 
-    def imshow(inp, title=None):
-        """Imshow for Tensor."""
-        inp = inp.numpy().transpose((1,2,0))
-        print(inp.dtype)
-       # convert from BGR to RGB
-        inp = cv2.cvtColor(inp, cv2.COLOR_BGR2RGB)
-        mean = np.array([0.485, 0.456, 0.406])
-        std = np.array([0.229, 0.224, 0.225])
-        inp = std * inp + mean
-        inp = np.clip(inp, 0, 1)
-        plt.imshow(inp)
-        if title is not None:
-            plt.title(title)
+    for phase in ['Train', 'Valid']:
+        for i, data in enumerate(dataloaders[phase]):
+            inputs, labels = data['X'], data['y']
+            print(i, 'inputs:', inputs.size())
 
-    # retrieve a batch of training data
-    train_batch = next(iter(dataloaders['Valid']))
-    data, labels = train_batch['X'], train_batch['y']
 
-    classes = ['Low Attention', 'Medium Attention', 
-            'High Attention', 'Very High Attention']
-    print(classes)
 
-    plt.figure()
-    for i in range(batch_size):
-        out = torchvision.utils.make_grid(data[i], nrow=20)
-        plt.subplot(batch_size, 1, i+1), imshow(out, classes[labels[i]])
-        plt.xticks([]), plt.yticks([])
 
-    plt.tight_layout()
-    plt.show()
+
+#    def imshow(inp, title=None):
+#        """Imshow for Tensor."""
+#        inp = inp.numpy().transpose((1,2,0))
+#        print(inp.dtype)
+#       # convert from BGR to RGB
+#        inp = cv2.cvtColor(inp, cv2.COLOR_BGR2RGB)
+#        mean = np.array([0.485, 0.456, 0.406])
+#        std = np.array([0.229, 0.224, 0.225])
+#        inp = std * inp + mean
+#        inp = np.clip(inp, 0, 1)
+#        plt.imshow(inp)
+#        if title is not None:
+#            plt.title(title)
+#
+#    # retrieve a batch of training data
+#    for i, sampled_batch in enumerate(dataloaders['Train']):
+#        data, labels = sampled_batch['X'], sampled_batch['y']
+#        print(i, data.size(), labels.size())
+#
+#    print('Elapsed Time:', time.time() - start)
+#
+#    train_batch = next(iter(dataloaders['Valid']))
+#    data, labels = train_batch['X'], train_batch['y']
+#
+#    classes = ['Low Attention', 'Medium Attention', 
+#            'High Attention', 'Very High Attention']
+#    print(classes)
+#
+#    plt.figure()
+#    for i in range(batch_size):
+#        out = torchvision.utils.make_grid(data[i], nrow=20)
+#        plt.subplot(batch_size, 1, i+1), imshow(out, classes[labels[i]])
+#        plt.xticks([]), plt.yticks([])
+#
+#    plt.tight_layout()
+#    plt.show()
 
 if __name__ == '__main__':
     main()

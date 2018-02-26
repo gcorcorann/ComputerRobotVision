@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.autograd import Variable
 import model
-from dataloader import get_loaders
+from dataloader_nd import get_loaders
 
 def train_network(network, dataloaders, dataset_sizes, criterion, 
         optimizer, scheduler, num_epochs, GPU):
@@ -52,7 +52,7 @@ def train_network(network, dataloaders, dataset_sizes, criterion,
             running_loss = 0.0
             running_correct = 0
             # iterate over data
-            for data in dataloaders[phase]:
+            for i, data in enumerate(dataloaders[phase]):
                 # get the inputs
                 inputs, labels = data['X'], data['y']
                 # reshape [numSeqs, batchSize, numChannels, Height, Width]
@@ -110,15 +110,15 @@ def main():
     """Main Function."""
     # dataloader parameters
     GPU = torch.cuda.is_available()
-    labels_path = '/home/gary/datasets/accv/labels_med.txt'
+    labels_path = '/usr/local/faststorage/gcorc/accv/labels_med.txt'
     batch_size = 50
+    num_workers = [0, 2, 4, 6]
     # network parameters
-    sample_rates = [1, 5, 10]
-    input_size = (224,224)
-    rnn_hiddens = [64, 128, 256, 512]
+    sample_rates = [1, 2, 5, 10]
+    rnn_hiddens = [32, 64, 128, 256, 512]
     rnn_layers = [1, 2, 3]
     # training parameters
-    num_epochs = 20
+    num_epochs = 30
     learning_rate = 1e-3
     criterion = nn.CrossEntropyLoss()
 
@@ -126,16 +126,16 @@ def main():
     best_acc = 0
     best_params = {}
     # train for all sets of hyper parameters
-    for sample_rate in sample_rates:
+    for i, sample_rate in enumerate(sample_rates):
         for rnn_layer in rnn_layers:
             for rnn_hidden in rnn_hiddens:
                 print()
                 print('Training Parameters:')
                 s = 'sample_rate: {}, rnn_layer: {}, rnn_hidden: {}'
                 print(s.format(sample_rate, rnn_layer, rnn_hidden))
-                # create dataloaders
                 dataloaders, dataset_sizes = get_loaders(labels_path,
-                        batch_size, sample_rate, num_workers=8, gpu=GPU)
+                        batch_size, sample_rate, num_workers=num_workers[i],
+                        gpu=GPU)
                 # create network and optimizer
                 net = model.VGG(rnn_hidden, rnn_layer)
                 params = list(net.lstm.parameters()) \
