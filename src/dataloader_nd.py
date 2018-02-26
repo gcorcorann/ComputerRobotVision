@@ -125,6 +125,8 @@ class AttentionDataset(Dataset):
         if self.transform:
             X_sample = self.transform(X_sample)
 
+        # reformat [numSeqs x numChannels x Height x Width]
+        X_sample = np.transpose(X_sample, (0,3,1,2))
         # store in sample
         sample = {'X': X_sample, 'y': y}
         return sample
@@ -314,8 +316,6 @@ class Normalize():
         """
         video = video / 255
         video = (video - self.mean) / self.std
-        #TODO remove transpose and place in dataset class
-        video = np.transpose(video, (0,3,1,2))
         video = np.asarray(video, dtype=np.float32)
         return video
 
@@ -402,17 +402,10 @@ def main():
     import time
 
     # hyperparameters
-<<<<<<< HEAD
     labels_path = '/usr/local/faststorage/gcorc/accv/labels_med.txt'
     batch_size = 50
     frame_sample = 1
     num_workers = 0
-=======
-    labels_path = '/home/gary/datasets/accv/labels_med.txt'
-    batch_size = 10
-    frame_sample = 1
-    num_workers = 4
->>>>>>> 6bb79b7ada38e1ef2860a91e93af5f43bb18a3a0
     gpu = torch.cuda.is_available()
 
     # start timer
@@ -420,26 +413,17 @@ def main():
 
     # dictionary of dataloaders
     dataloaders, dataset_sizes = get_loaders(labels_path, batch_size, 
-            frame_sample, num_workers, gpu, flow=True)
+            frame_sample, num_workers, gpu, flow=False)
     print('Dataset Sizes:')
     print(dataset_sizes)
     print()
 
-<<<<<<< HEAD
-    for phase in ['Train', 'Valid']:
-        for i, data in enumerate(dataloaders[phase]):
-            inputs, labels = data['X'], data['y']
-            print(i, 'inputs:', inputs.size())
-
-
-
-
-=======
-    for i, data in enumerate(dataloaders['Valid']):
-        print(i, data['X'].size())
+    phase = 'Valid'
+    for i, data in enumerate(dataloaders[phase]):
+        inputs, labels = data['X'], data['y']
+        print(i, 'inputs:', inputs.size())
 
     print('Elapsed Time:', time.time()-start)
->>>>>>> 6bb79b7ada38e1ef2860a91e93af5f43bb18a3a0
 
 #    def imshow(inp, title=None):
 #        """Imshow for Tensor."""
@@ -456,15 +440,12 @@ def main():
 #            plt.title(title)
 #
 #    # retrieve a batch of training data
-<<<<<<< HEAD
 #    for i, sampled_batch in enumerate(dataloaders['Train']):
 #        data, labels = sampled_batch['X'], sampled_batch['y']
 #        print(i, data.size(), labels.size())
 #
 #    print('Elapsed Time:', time.time() - start)
 #
-=======
->>>>>>> 6bb79b7ada38e1ef2860a91e93af5f43bb18a3a0
 #    train_batch = next(iter(dataloaders['Valid']))
 #    data, labels = train_batch['X'], train_batch['y']
 #
