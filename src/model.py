@@ -131,7 +131,7 @@ class Network2(nn.Module):
         outputs = self.linear(outputs[-1])
         return outputs
 
-class VGG(nn.Module):
+class VGGNetLSTMfc2(nn.Module):
     """Pretrained VGG Net with LSTM.
 
     Args:
@@ -172,7 +172,8 @@ class VGG(nn.Module):
         # for each input in sequence
         for inp in inputs:
             # pass through cnn
-            feats.append(self.cnn.forward(inp))
+            outs = self.cnn.forward(inp)
+            feats.append(outs)
         
         # format features and store in Variable
         feats = torch.stack(feats)
@@ -181,78 +182,159 @@ class VGG(nn.Module):
         outputs = self.fc(outputs[-1])
         return outputs
 
-class Network3(nn.Module):
+class VGGNetLSTMfc1(nn.Module):
+    """Pretrained VGG Net with LSTM.
+
+    Args:
+        rnn_hidden (int): number of hidden units in each rnn layer.
+        rnn_layers (int): number of layers in rnn model.
+    """
+
+    def __init__(self, rnn_hidden, rnn_layers):
+        super().__init__()
+        self.cnn = models.vgg19_bn(pretrained=True)
+        # number of inputs features in fc1
+        num_ftrs = self.cnn.classifier[3].in_features
+        # remove last two fc layers (need to remove ReLU + Dropout layers)
+        self.cnn.classifier = nn.Sequential(
+                *list(self.cnn.classifier.children())[:-4]
+                )
+        #TODO change VGG parameters to trainable/un-trainable
+        for param in self.cnn.parameters():
+            param.requires_grad = False
+
+        # add lstm layer
+        self.lstm = nn.LSTM(num_ftrs, rnn_hidden, rnn_layers)
+        # add linear layer
+        self.fc = nn.Linear(rnn_hidden, 4)
+
+    def forward(self, inputs):
+        """Forward pass through network.
+
+        Args:
+            inputs (torch.Tensor): tensor of dimensions
+                [numSeqs x batchSize x numChannels x Width x Height]
+
+        Returns:
+            torch.Tensor: final output of dimensions
+                [batchSize x numClasses]
+        """
+        # list to hold features
+        feats = []
+        # for each input in sequence
+        for inp in inputs:
+            # pass through cnn
+            outs = self.cnn.forward(inp).data
+            feats.append(outs)
+        
+        # format features and store in Variable
+        feats = torch.stack(feats)
+        feats = Variable(feats)
+        # pass through LSTM
+        outputs, _ = self.lstm(feats)
+        outputs = self.fc(outputs[-1])
+        return outputs
+
+class ResNetLSTM(nn.Module):
+    """Pretrained ResNet with LSTM.
+
+    Args:
+        rnn_hidden (int): number of hidden units in each rnn layer.
+        rnn_layers (int): number of layers in rnn model.
+    """
+
+    def __init__(self, rnn_hidden, rnn_layers):
+        super().__init__()
+        self.cnn = models.resnet152(pretrained=True)
+        # number of input features of last layer of cnn
+        num_ftrs = self.cnn.fc.in_features
+        # remove last layer
+        self.cnn = nn.Sequential(
+                *list(self.cnn.children())[:-1]
+                )
+        for param in self.cnn.parameters():
+            param.requires_grad = False
+
+        # add lstm layer
+        self.lstm = nn.LSTM(num_ftrs, rnn_hidden, rnn_layers)
+        # add linear layer
+        self.fc = nn.Linear(rnn_hidden, 4)
+
+    def forward(self, inputs):
+        """Forward pass through network.
+
+        Args:
+            inputs (torch.Tensor): tensor of dimensions
+                [numSeqs x batchSize x numChannels x Width x Height]
+
+        Returns:
+            torch.Tensor: final output of dimensions
+                [batchSize x numClasses]
+        """
+        # list to hold features
+        feats = []
+        # for each input in sequence
+        for inp in inputs:
+            # pass through cnn
+            outs = self.cnn.forward(inp)
+            # remove 1 dimensions
+            outs = torch.squeeze(outs)
+            feats.append(outs)
+        
+        # format features and store in Variable
+        feats = torch.stack(feats)
+        # pass through LSTM
+        outputs, _ = self.lstm(feats)
+        outputs = self.fc(outputs[-1])
+        return outputs
+
+class ResNetLSTMFlow(nn.Module):
     """
     ResNet + LSTM.
     """
-    def __init__(self, batch_size, lstm_hidden, seq_length):
+    def __init__(self, rnn_hidden, rnn_layers):
         """
         Initialize Parameters.
         
-        @param  batch_size: size of batch
-        @param  lstm_hidden: size of LSTM hidden layer
+        rnn_hidden (int): number of hidden units in each rnn layer.
+        rnn_layers (int): number of layers in rnn model.
         """
         super().__init__()
-        self.batch_size = batch_size
-        self.lstm_hidden = lstm_hidden
-        self.seq_length = seq_length
         # create ResNet model
         self.cnn = models.resnet18()
+        # number of input features of last layer of cnn
+        num_ftrs = self.cnn.fc.in_features
         # change first cnn layer for flow (i.e. 2 dimensions)
         self.cnn.conv1 = nn.Conv2d(2, 64, kernel_size=(7,7), stride=(2,2),
                 padding=(3,3), bias=False)
-        self.num_feats = self.cnn.fc.in_features
         # remove last layer
-        self.cnn = nn.Sequential(*list(self.cnn.children())[:-1])
+        self.cnn = nn.Sequential(
+                *list(self.cnn.children())[:-1]
+                )
         # use CNN as feature extractor
 #        for param in self.cnn.parameters():
 #            param.requires_grad = False
         # lstm layer
-        self.lstm = nn.LSTM(self.num_feats, lstm_hidden, 1)
-        self.linear = nn.Linear(lstm_hidden, 4)
+        self.lstm = nn.LSTM(num_ftrs, rnn_hidden, rnn_layers)
+        self.fc = nn.Linear(rnn_hidden, 4)
         
     def forward(self, inputs):
         # list to hold features
         feats = []
         # for each input in sequence
-        for i, inp in enumerate(inputs):
+        for inp in inputs:
             # pass through CNN
-            out = self.cnn.forward(inp)
-            feats.append(out.data)
+            outs = self.cnn.forward(inp).data
+            outs = torch.squeeze(outs)
+            feats.append(outs)
 
         # format features and store in Variable
-        feats = torch.cat(feats).view(self.seq_length, -1, self.num_feats)
+        feats = torch.stack(feats)
         feats = Variable(feats)
         # pass through LSTM
         outputs, _ = self.lstm(feats)
-        outputs = self.linear(outputs[-1])
+        outputs = self.fc(outputs[-1])
         return outputs
-
-class Res(nn.Module):
-    """
-    Pretrained ResNet.
-    """
-    def __init__(self):
-        super().__init__()
-        self.cnn = models.resnet18(pretrained=True)
-        for param in self.cnn.parameters():
-            param.requires_grad = False
-        num_ftrs = self.cnn.fc.in_features
-        self.cnn.fc = nn.Linear(num_ftrs, 2)
-
-    def forward(self, inputs):
-        outputs = self.cnn.forward(inputs)
-        return outputs
-
-class VGG2(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.cnn = models.vgg16_bn(pretrained=True)
-        for param in self.cnn.parameters():
-            param.requires_grad = False
-
-    def forward(self, inputs):
-        return self.cnn.forward(inputs)
 
 def main():
     import time
@@ -264,7 +346,7 @@ def main():
     
     # hyper-parameters
     GPU = torch.cuda.is_available()
-    num_epochs = 2
+    num_epochs = 20
     seq_length = 19
     batch_size = 30
     input_size = (224,224)
@@ -272,13 +354,14 @@ def main():
     rnn_layers = 1
 
     # create model object
-    net = VGG(rnn_hidden, rnn_layers)
+    net = ResNetLSTMFlow(rnn_hidden, rnn_layers)
+#    net = ResNetLSTM(rnn_hidden, rnn_layers)
     print(net)
     if GPU:
         net = net.cuda()
 
     # create inputs and targets
-    inputs = torch.randn(seq_length, batch_size, 3, *input_size)
+    inputs = torch.randn(seq_length, batch_size, 2, *input_size)
     targets = torch.ones(batch_size).type(torch.LongTensor)
     print('inputs:', inputs.size())
     print('targets:', targets.size())
@@ -313,7 +396,8 @@ def main():
         loss.backward()
     
         # update weights
-        params = list(net.lstm.parameters()) + list(net.fc.parameters())
+#        params = list(net.lstm.parameters()) + list(net.fc.parameters())
+        params = net.parameters()
         optimizer = torch.optim.SGD(params, lr=0.01)
         optimizer.step()
 
@@ -321,9 +405,9 @@ def main():
     print('Elapsed Training Time: {:.0f}m {:.0f}s'.format(
         time_elapsed // 60, time_elapsed % 60))
 
-    # save and load only the model parameters
-    torch.save(net.state_dict(), 'params.pkl')
-    net.load_state_dict(torch.load('params.pkl'))
+#    # save and load only the model parameters
+#    torch.save(net.state_dict(), 'params.pkl')
+#    net.load_state_dict(torch.load('params.pkl'))
 
 if __name__ == '__main__':
     main()

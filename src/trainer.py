@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 import time
 import copy
+import random
+import matplotlib.pyplot as plt
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.autograd import Variable
 import model
-from dataloader import get_loaders
+from dataloader_nd import get_loaders
 
 def train_network(network, dataloaders, dataset_sizes, criterion, 
         optimizer, scheduler, num_epochs, GPU):
@@ -26,6 +29,8 @@ def train_network(network, dataloaders, dataset_sizes, criterion,
     Returns:
         torchvision.models: best trained model
         float: best validaion accuracy
+        dictionary: training and validation losses
+        dictionary: training and validation accuracy
     """
     # start timer
     start = time.time()
@@ -36,6 +41,8 @@ def train_network(network, dataloaders, dataset_sizes, criterion,
     # store best validation accuracy
     best_model_wts = copy.deepcopy(network.state_dict())
     best_acc = 0.0
+    losses = {'Train': [], 'Valid': []}
+    accuracies = {'Train': [], 'Valid': []}
 
     for epoch in range(num_epochs):
         print()
@@ -52,7 +59,7 @@ def train_network(network, dataloaders, dataset_sizes, criterion,
             running_loss = 0.0
             running_correct = 0
             # iterate over data
-            for data in dataloaders[phase]:
+            for i, data in enumerate(dataloaders[phase]):
                 # get the inputs
                 inputs, labels = data['X'], data['y']
                 # reshape [numSeqs, batchSize, numChannels, Height, Width]
@@ -65,10 +72,13 @@ def train_network(network, dataloaders, dataset_sizes, criterion,
                     inputs = Variable(inputs)
                     labels = Variable(labels)
 
+                print('inputs:', inputs.size())
+                print('labels:', labels)
                 # zero the parameter gradients
                 optimizer.zero_grad()
                 # forward pass
                 outputs = network.forward(inputs)
+                print('outputs:', outputs.size())
                 # loss + predicted
                 _, pred = torch.max(outputs.data, 1)
                 loss = criterion(outputs, labels)
@@ -87,6 +97,9 @@ def train_network(network, dataloaders, dataset_sizes, criterion,
             epoch_acc = running_correct / dataset_sizes[phase]
             print('{} Loss: {:.4f} Acc: {:.4f}'.format(
                 phase, epoch_loss, epoch_acc))
+            # store stats
+            losses[phase].append(epoch_loss)
+            accuracies[phase].append(epoch_acc)
             # perform scheduled learning rate reduction
             if phase == 'Valid':
                 scheduler.step(epoch_loss)
@@ -98,67 +111,92 @@ def train_network(network, dataloaders, dataset_sizes, criterion,
     # print elapsed time
     time_elapsed = time.time() - start
     print()
-    print('Training Complete in {:.0f}h {:.0f}m'.format(
-        time_elapsed // (60*60), time_elapsed // 60 % 60
+    print('Training Complete in {:.0f}m {:.0f}s'.format(
+        time_elapsed // 60, time_elapsed % 60
         ))
 
     # load the best model weights
     network.load_state_dict(best_model_wts)
-    return network, best_acc
+    return network, best_acc, losses, accuracies
 
 def main():
     """Main Function."""
     # dataloader parameters
     GPU = torch.cuda.is_available()
-    labels_path = '/home/gary/datasets/accv/labels_med.txt'
-    batch_size = 50
+    labels_path = '/usr/local/faststorage/gcorc/accv/median_labels.txt'
+    batch_size = 10
+    num_workers = 2
     # network parameters
-    sample_rates = [1, 5, 10]
-    input_size = (224,224)
-    rnn_hiddens = [64, 128, 256, 512]
-    rnn_layers = [1, 2, 3]
+    sample_rate = 5
+    rnn_hidden = 128
+    rnn_layer = 1
     # training parameters
-    num_epochs = 20
-    learning_rate = 1e-3
+    num_epochs = 30
+    learning_rate = 1e-4
     criterion = nn.CrossEntropyLoss()
 
     # hold best validaion accuracy and parameters
     best_acc = 0
     best_params = {}
     # train for all sets of hyper parameters
-    for sample_rate in sample_rates:
-        for rnn_layer in rnn_layers:
-            for rnn_hidden in rnn_hiddens:
-                print()
-                print('Training Parameters:')
-                s = 'sample_rate: {}, rnn_layer: {}, rnn_hidden: {}'
-                print(s.format(sample_rate, rnn_layer, rnn_hidden))
-                # create dataloaders
-                dataloaders, dataset_sizes = get_loaders(labels_path,
-                        batch_size, sample_rate, num_workers=8, gpu=GPU)
-                # create network and optimizer
-                net = model.VGG(rnn_hidden, rnn_layer)
-                params = list(net.lstm.parameters()) \
-                        + list(net.fc.parameters())
-                optimizer = optim.Adam(params, learning_rate)
-                # decay lr when validation loss stops improving
-                scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-                        optimizer, mode='min', factor=0.5, 
-                        patience=2, verbose=True
-                        )
-                # train the network
-                net, val_acc = train_network(net, dataloaders, dataset_sizes, 
-                        criterion, optimizer, scheduler, num_epochs, GPU)
-                print('Best Validation Acc:', val_acc)
-                print('-' * 70)
-                if val_acc > best_acc:
-                    best_params = {'sample_rate': sample_rate, 
-                            'rnn_layer': rnn_layer, 'rnn_hidden': rnn_hidden}
-                    torch.save(net.state_dict(), '../data/net_params.pkl')
-                    best_acc = val_acc
-                    
+    print('Training Parameters:')
+    print('batch_size: {}, num_workers: {}, lr: {}'.format(
+        batch_size, num_workers, learning_rate
+        ))
+    s = 'sample_rate: {}, rnn_layer: {}, rnn_hidden: {}'
+    print(s.format(sample_rate, rnn_layer, rnn_hidden))
+    # string to save plot
+    s = 'bs:' + str(batch_size) + '_w:' + str(num_workers) + '_lr:' \
+            + str(learning_rate) + '_rate:' + str(sample_rate) \
+            + '_lay:' + str(rnn_layer) + '_hid:' + str(rnn_hidden) \
+            + '.png'
+    dataloaders, dataset_sizes = get_loaders(labels_path,
+            batch_size, sample_rate, num_workers=num_workers,
+            gpu=GPU, flow=True)
+    # create network and optimizer
+    net = model.ResNetLSTMFlow(rnn_hidden, rnn_layer)
+    #TODO change which parameters are trainable
+    params = net.parameters()
+#    params = list(net.lstm.parameters()) \
+#            + list(net.fc.parameters())
+    optimizer = optim.Adam(params, learning_rate)
+    # decay lr when validation loss stops improving
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, mode='min', factor=0.1, 
+            patience=50, verbose=True
+            )
+    # train the network
+    net, val_acc, losses, accuracies = train_network(net, 
+            dataloaders, dataset_sizes, criterion, optimizer, 
+            scheduler, num_epochs, GPU)
+    print('Best Validation Acc:', val_acc)
+    print('-' * 60)
     print()
-    print(best_params, 'Best Validation Acc:', best_acc)
+    # plot
+    plt.figure()
+    plt.subplot(121)
+    plt.plot(losses['Train'], label='Train')
+    plt.plot(losses['Valid'], label='Valid')
+    plt.title('Loss')
+    plt.ylim((0,2))
+    plt.legend(loc='upper right')
+    plt.subplot(122)
+    plt.plot(accuracies['Train'], label='Train')
+    plt.plot(accuracies['Valid'], label='Valid')
+    plt.title('Accuracy')
+    plt.ylim((0,1))
+    plt.legend(loc='upper left')
+    plt.savefig('../outputs/' + s)
+
+    #TODO add this when training final model
+#    if val_acc > best_acc:
+#        best_params = {'sample_rate': sample_rate, 
+#                'rnn_layer': rnn_layer, 'rnn_hidden': rnn_hidden}
+#        torch.save(net.state_dict(), '../data/net_params.pkl')
+#        best_acc = val_acc
+#                    
+#    print()
+#    print(best_params, 'Best Validation Acc:', best_acc)
 
 if __name__ == '__main__':
     main()

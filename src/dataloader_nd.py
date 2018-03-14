@@ -11,6 +11,80 @@ from torch.utils.data.sampler import SubsetRandomSampler
 import torchvision
 from torchvision import transforms
 
+class FlowDataset(Dataset):
+    """Flow Attention Dataset.
+    
+    Args:
+        labels_path (string):   path to text file with annotations
+        frame_sample (int):     sample video every `frame_sample`
+        transform (callable):   transform to be applied on image
+
+    Returns:
+        torch.utils.data.Dataset: dataset object
+    """
+
+    def __init__(self, labels_path, frame_sample, transform=None):
+        # read video path and labels
+        with open(labels_path, 'r') as f:
+            data = f.read()
+            data = data.split()
+            data = np.array(data)
+            data = np.reshape(data, (-1, 2))
+
+        np.random.shuffle(data)
+        self.data = data
+        self.frame_sample = frame_sample
+        self.transform = transform
+
+    def __len__(self):
+        """
+        Retrieve Dataset Length.
+        """
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        """
+        Retrieve Next Item in Dataset.
+
+        @return sample: sample['X'] contains input data while sample['y']
+                        contains attention label.
+        """
+        # list to hold flow
+        X_flow = []
+        video_path = self.data[idx, 0]
+        y = int(self.data[idx, 1]) - 1
+        X = np.load(video_path)
+        # sample video
+        X_sample = X[::self.frame_sample]
+        # transform data
+        if self.transform:
+            X_sample = self.transform(X_sample)
+
+        # take initial frame
+        frame1 = X_sample[0]
+        gray1 = cv2.cvtColor(frame1, cv2.COLOR_BGR2GRAY)
+
+        # for second frame onward
+        for frame2 in X_sample[1:]:
+            gray2 = cv2.cvtColor(frame2, cv2.COLOR_BGR2GRAY)
+            # compute flow
+            flow = cv2.calcOpticalFlowFarneback(gray1, gray2, None,
+                    0.5, 3, 15, 3, 5, 1.2, 0)
+            # normalize between 0-1
+            cv2.normalize(flow, flow, 0, 1, cv2.NORM_MINMAX)
+            # store flow in list
+            X_flow.append(flow)
+            # set initial frame to second frame
+            gray1 = gray2
+        
+        # convert to ndarray
+        X_flow = np.array(X_flow, dtype=np.float32)
+        # reformat (since we are not using normalize function)
+        X_flow = np.transpose(X_flow, (0,3,1,2))
+        # store in sample
+        sample = {'X': X_flow, 'y': y}
+        return sample
+
 class AttentionDataset(Dataset):
     """Attention Level Dataset.
     
@@ -42,15 +116,15 @@ class AttentionDataset(Dataset):
     def __getitem__(self, idx):
         video_path = self.data[idx, 0]
         y = int(self.data[idx, 1]) - 1
-        # change video path to read numpy array
-        vid_new = video_path[:33] + '_nd/' + video_path[34:40] + '.npy'
-        X = np.load(vid_new)
+        X = np.load(video_path)
         # sample video
         X_sample = X[::self.frame_sample]
         # transform data
         if self.transform:
             X_sample = self.transform(X_sample)
 
+        # reformat [numSeqs x numChannels x Height x Width]
+        X_sample = np.transpose(X_sample, (0,3,1,2))
         # store in sample
         sample = {'X': X_sample, 'y': y}
         return sample
@@ -240,11 +314,10 @@ class Normalize():
         """
         video = video / 255
         video = (video - self.mean) / self.std
-        video = np.transpose(video, (0,3,1,2))
         video = np.asarray(video, dtype=np.float32)
         return video
 
-def get_loaders(labels_path, batch_size, frame_sample, num_workers, gpu):
+def get_loaders(labels_path, batch_size, frame_sample, num_workers, gpu, flow):
     """Return dictionary of torch.utils.data.DataLoader.
 
     Args:
@@ -253,6 +326,7 @@ def get_loaders(labels_path, batch_size, frame_sample, num_workers, gpu):
         frame_sample (int):     sample video every `frame_sample`
         num_workers (int):      number of subprocesses used for data loading
         gpu (bool):             presence of gpu
+        flow (bool):            if using flow dataset
 
     Returns:
         torch.utils.data.DataLoader:    dataloader for custom dataset
@@ -261,31 +335,50 @@ def get_loaders(labels_path, batch_size, frame_sample, num_workers, gpu):
     """
     # data augmentation and normalization for training
     # just normalization for validation
-    data_transforms = {
-            'Train': transforms.Compose([
-                Resize((256,256)),
-                RandomCrop((224,224)),
-                RandomHorizontalFlip(),
-                RandomRotation(15),
-                Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-                ]),
-            'Valid': transforms.Compose([
-                Resize((256,256)),
-                CenterCrop((224,224)),
-                Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-                ])
-            }
+    if flow:
+        data_transforms = {
+                'Train': transforms.Compose([
+                    Resize((256,256)),
+                    RandomCrop((224,224)),
+                    RandomHorizontalFlip(),
+                    RandomRotation(15)
+                    ]),
+                'Valid': transforms.Compose([
+                    Resize((256,256)),
+                    CenterCrop((224,224))
+                    ])
+                }
+    else:
+        data_transforms = {
+                'Train': transforms.Compose([
+                    Resize((256,256)),
+                    RandomCrop((224,224)),
+                    RandomHorizontalFlip(),
+                    RandomRotation(15),
+                    Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+                    ]),
+                'Valid': transforms.Compose([
+                    Resize((256,256)),
+                    CenterCrop((224,224)),
+                    Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+                    ])
+                }
 
     # create dataset object
-    datasets = {x: AttentionDataset(
-        labels_path, frame_sample, data_transforms[x]
-        ) for x in ['Train', 'Valid']}
+    if flow:
+        datasets = {x: FlowDataset(
+            labels_path, frame_sample, data_transforms[x]
+            ) for x in ['Train', 'Valid']}
+    else:
+        datasets = {x: AttentionDataset(
+            labels_path, frame_sample, data_transforms[x]
+            ) for x in ['Train', 'Valid']}
 
     # random split for training and validation
     num_instances = len(datasets['Train'])
     indices = list(range(num_instances))
     split = math.floor(num_instances * 0.8)
-    train_indices, valid_indices = indices[:split], indices[split:]
+    train_indices, valid_indices = indices[:split][:10], indices[split:][:10]
     samplers = {'Train': SubsetRandomSampler(train_indices),
                 'Valid': SubsetRandomSampler(valid_indices)}
     
@@ -307,33 +400,15 @@ def main():
     import time
 
     # hyperparameters
-    labels_path = '/home/gary/datasets/accv/labels_med.txt'
-    batch_size = 5
+    labels_path = '/usr/local/faststorage/gcorc/accv/labels_med.txt'
+    batch_size = 10
     frame_sample = 10
-    num_workers = 8
+    num_workers = 2
     gpu = torch.cuda.is_available()
-
-    # start timer
-    start = time.time()
-
-    data_transforms = {
-            'Train': transforms.Compose([
-                Resize((256,256)),
-                RandomCrop((224,224)),
-                RandomHorizontalFlip(),
-                RandomRotation(15),
-                Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-                ]),
-            'Valid': transforms.Compose([
-                Resize((256,256)),
-                CenterCrop((224,224)),
-                Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-                ])
-            }
 
     # dictionary of dataloaders
     dataloaders, dataset_sizes = get_loaders(labels_path, batch_size, 
-            frame_sample, num_workers, gpu)
+            frame_sample, num_workers, gpu, flow=True)
     print('Dataset Sizes:')
     print(dataset_sizes)
     print()
@@ -352,22 +427,41 @@ def main():
         if title is not None:
             plt.title(title)
 
-    # retrieve a batch of training data
     train_batch = next(iter(dataloaders['Valid']))
     data, labels = train_batch['X'], train_batch['y']
-
-    classes = ['Low Attention', 'Medium Attention', 
-            'High Attention', 'Very High Attention']
-    print(classes)
-
+    for vid in data:
+        print('vid:', vid.size())
+        for i, frame in enumerate(vid):
+            print('frame:', frame.size())
+            flowx, flowy = frame
+            flowx = flowx.numpy()
+            flowy = flowy.numpy()
+            if i == 0:
+                flow_x = flowx
+                flow_y = flowy
+            else:
+                flow_x = np.hstack((flow_x, flowx))
+                flow_y = np.hstack((flow_y, flowy))
+        break
+    print(flow_x.shape)
+    print(flow_y.shape)
     plt.figure()
-    for i in range(batch_size):
-        out = torchvision.utils.make_grid(data[i], nrow=20)
-        plt.subplot(batch_size, 1, i+1), imshow(out, classes[labels[i]])
-        plt.xticks([]), plt.yticks([])
-
-    plt.tight_layout()
+    plt.subplot(211), plt.imshow(flow_x, cmap='gray')
+    plt.subplot(212), plt.imshow(flow_y, cmap='gray')
     plt.show()
+
+#    classes = ['Low Attention', 'Medium Attention', 
+#            'High Attention', 'Very High Attention']
+#    print(classes)
+#
+#    plt.figure()
+#    for i in range(batch_size):
+#        out = torchvision.utils.make_grid(data[i], nrow=20)
+#        plt.subplot(batch_size, 1, i+1), imshow(out, classes[labels[i]])
+#        plt.xticks([]), plt.yticks([])
+#
+#    plt.tight_layout()
+#    plt.show()
 
 if __name__ == '__main__':
     main()
