@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -341,14 +342,12 @@ def main():
 
     # start timer
     start = time.time()
-    # set random seed
-    torch.manual_seed(1)
     
     # hyper-parameters
     GPU = torch.cuda.is_available()
-    num_epochs = 20
+    num_epochs = 100
     seq_length = 19
-    batch_size = 30
+    batch_size = 10
     input_size = (224,224)
     rnn_hidden = 128
     rnn_layers = 1
@@ -362,7 +361,8 @@ def main():
 
     # create inputs and targets
     inputs = torch.randn(seq_length, batch_size, 2, *input_size)
-    targets = torch.ones(batch_size).type(torch.LongTensor)
+    targets = np.random.randint(4, size=batch_size)
+    targets = torch.from_numpy(targets).type(torch.LongTensor)
     print('inputs:', inputs.size())
     print('targets:', targets.size())
     print('')
@@ -389,6 +389,12 @@ def main():
         print('loss:', loss.data[0])
         print('')
     
+        # predicted
+        _, pred = torch.max(output.data,1)
+        correct = torch.sum(pred==targets.data)
+        print('accuracy:', correct/batch_size)
+        print('')
+
         # clear existing gradients
         net.zero_grad()
     
