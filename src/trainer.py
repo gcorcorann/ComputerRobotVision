@@ -72,13 +72,10 @@ def train_network(network, dataloaders, dataset_sizes, criterion,
                     inputs = Variable(inputs)
                     labels = Variable(labels)
 
-                print('inputs:', inputs.size())
-                print('labels:', labels)
                 # zero the parameter gradients
                 optimizer.zero_grad()
                 # forward pass
                 outputs = network.forward(inputs)
-                print('outputs:', outputs.size())
                 # loss + predicted
                 _, pred = torch.max(outputs.data, 1)
                 loss = criterion(outputs, labels)
@@ -123,22 +120,17 @@ def main():
     """Main Function."""
     # dataloader parameters
     GPU = torch.cuda.is_available()
-    labels_path = '/usr/local/faststorage/gcorc/accv/median_labels.txt'
-    batch_size = 10
+    labels_path = '/usr/local/faststorage/gcorc/accv/average_labels.txt'
+    batch_size = 32
     num_workers = 2
     # network parameters
     sample_rate = 5
-    rnn_hidden = 128
-    rnn_layer = 1
+    rnn_hidden = 512
+    rnn_layer = 2
     # training parameters
-    num_epochs = 30
+    num_epochs = 60
     learning_rate = 1e-4
     criterion = nn.CrossEntropyLoss()
-
-    # hold best validaion accuracy and parameters
-    best_acc = 0
-    best_params = {}
-    # train for all sets of hyper parameters
     print('Training Parameters:')
     print('batch_size: {}, num_workers: {}, lr: {}'.format(
         batch_size, num_workers, learning_rate
@@ -154,16 +146,16 @@ def main():
             batch_size, sample_rate, num_workers=num_workers,
             gpu=GPU, flow=True)
     # create network and optimizer
-    net = model.ResNetLSTMFlow(rnn_hidden, rnn_layer)
+    net = model.VGGNetLSTMfc1(rnn_hidden, rnn_layer)
     #TODO change which parameters are trainable
-    params = net.parameters()
-#    params = list(net.lstm.parameters()) \
-#            + list(net.fc.parameters())
+#    params = net.parameters()
+    params = list(net.lstm.parameters()) \
+            + list(net.fc.parameters())
     optimizer = optim.Adam(params, learning_rate)
     # decay lr when validation loss stops improving
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
             optimizer, mode='min', factor=0.1, 
-            patience=50, verbose=True
+            patience=500, verbose=True
             )
     # train the network
     net, val_acc, losses, accuracies = train_network(net, 
@@ -188,15 +180,9 @@ def main():
     plt.legend(loc='upper left')
     plt.savefig('../outputs/' + s)
 
-    #TODO add this when training final model
-#    if val_acc > best_acc:
-#        best_params = {'sample_rate': sample_rate, 
-#                'rnn_layer': rnn_layer, 'rnn_hidden': rnn_hidden}
-#        torch.save(net.state_dict(), '../data/net_params.pkl')
-#        best_acc = val_acc
-#                    
-#    print()
-#    print(best_params, 'Best Validation Acc:', best_acc)
+    best_params = {'sample_rate': sample_rate, 
+            'rnn_layer': rnn_layer, 'rnn_hidden': rnn_hidden}
+    torch.save(net.state_dict(), '../data/net_params.pkl')
 
 if __name__ == '__main__':
     main()

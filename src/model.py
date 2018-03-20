@@ -236,6 +236,59 @@ class VGGNetLSTMfc1(nn.Module):
         outputs = self.fc(outputs[-1])
         return outputs
 
+class VGGNetLSTMfc1Flow(nn.Module):
+    """Pretrained VGG Net with LSTM.
+
+    Args:
+        rnn_hidden (int): number of hidden units in each rnn layer.
+        rnn_layers (int): number of layers in rnn model.
+    """
+
+    def __init__(self, rnn_hidden, rnn_layers):
+        super().__init__()
+        self.cnn = models.vgg19_bn(pretrained=True)
+        # number of inputs features in fc1
+        num_ftrs = self.cnn.classifier[3].in_features
+        # remove last two fc layers (need to remove ReLU + Dropout layers)
+        self.cnn.classifier = nn.Sequential(
+                *list(self.cnn.classifier.children())[:-4]
+                )
+        #TODO change VGG parameters to trainable/un-trainable
+        for param in self.cnn.parameters():
+            param.requires_grad = False
+
+        # add lstm layer
+        self.lstm = nn.LSTM(num_ftrs, rnn_hidden, rnn_layers)
+        # add linear layer
+        self.fc = nn.Linear(rnn_hidden, 4)
+
+    def forward(self, inputs):
+        """Forward pass through network.
+
+        Args:
+            inputs (torch.Tensor): tensor of dimensions
+                [numSeqs x batchSize x numChannels x Width x Height]
+
+        Returns:
+            torch.Tensor: final output of dimensions
+                [batchSize x numClasses]
+        """
+        # list to hold features
+        feats = []
+        # for each input in sequence
+        for inp in inputs:
+            # pass through cnn
+            outs = self.cnn.forward(inp).data
+            feats.append(outs)
+        
+        # format features and store in Variable
+        feats = torch.stack(feats)
+        feats = Variable(feats)
+        # pass through LSTM
+        outputs, _ = self.lstm(feats)
+        outputs = self.fc(outputs[-1])
+        return outputs
+
 class ResNetLSTM(nn.Module):
     """Pretrained ResNet with LSTM.
 
@@ -302,12 +355,9 @@ class ResNetLSTMFlow(nn.Module):
         """
         super().__init__()
         # create ResNet model
-        self.cnn = models.resnet18()
+        self.cnn = models.resnet18(pretrained=True)
         # number of input features of last layer of cnn
         num_ftrs = self.cnn.fc.in_features
-        # change first cnn layer for flow (i.e. 2 dimensions)
-        self.cnn.conv1 = nn.Conv2d(2, 64, kernel_size=(7,7), stride=(2,2),
-                padding=(3,3), bias=False)
         # remove last layer
         self.cnn = nn.Sequential(
                 *list(self.cnn.children())[:-1]
@@ -345,7 +395,7 @@ def main():
     
     # hyper-parameters
     GPU = torch.cuda.is_available()
-    num_epochs = 100
+    num_epochs = 200
     seq_length = 19
     batch_size = 10
     input_size = (224,224)
@@ -404,7 +454,7 @@ def main():
         # update weights
 #        params = list(net.lstm.parameters()) + list(net.fc.parameters())
         params = net.parameters()
-        optimizer = torch.optim.SGD(params, lr=0.01)
+        optimizer = torch.optim.SGD(params, lr=0.1)
         optimizer.step()
 
     time_elapsed = time.time() - start
