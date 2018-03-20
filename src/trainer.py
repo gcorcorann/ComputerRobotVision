@@ -144,7 +144,7 @@ def main():
             + '.png'
     dataloaders, dataset_sizes = get_loaders(labels_path,
             batch_size, sample_rate, num_workers=num_workers,
-            gpu=GPU, flow=True)
+            gpu=GPU, flow=False)
     # create network and optimizer
     net = model.VGGNetLSTMfc1(rnn_hidden, rnn_layer)
     #TODO change which parameters are trainable
