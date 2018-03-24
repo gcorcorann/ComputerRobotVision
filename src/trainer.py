@@ -12,7 +12,7 @@ import model
 from dataloader_nd import get_loaders
 
 def train_network(network, dataloaders, dataset_sizes, criterion, 
-        optimizer, scheduler, num_epochs, GPU):
+        optimizer, scheduler, num_epochs):
     """Train network.
 
     Args:
@@ -24,7 +24,6 @@ def train_network(network, dataloaders, dataset_sizes, criterion,
         opitimier (torch.optim): optimization algorithm.
         scheduler (torch.optim): scheduled learning rate.
         num_epochs (int): number of epochs used for training
-        GPU (bool): gpu availability
 
     Returns:
         torchvision.models: best trained model
@@ -35,8 +34,7 @@ def train_network(network, dataloaders, dataset_sizes, criterion,
     # start timer
     start = time.time()
     # store network to GPU
-    if GPU:
-        network = network.cuda()
+    network = network.cuda()
 
     # store best validation accuracy
     best_model_wts = copy.deepcopy(network.state_dict())
@@ -65,13 +63,8 @@ def train_network(network, dataloaders, dataset_sizes, criterion,
                 # reshape [numSeqs, batchSize, numChannels, Height, Width]
                 inputs = inputs.transpose(0,1)
                 # wrap in Variable
-                if GPU:
-                    inputs = Variable(inputs.cuda())
-                    labels = Variable(labels.cuda())
-                else:
-                    inputs = Variable(inputs)
-                    labels = Variable(labels)
-
+                inputs = Variable(inputs.cuda())
+                labels = Variable(labels.cuda())
                 # zero the parameter gradients
                 optimizer.zero_grad()
                 # forward pass
@@ -116,10 +109,94 @@ def train_network(network, dataloaders, dataset_sizes, criterion,
     network.load_state_dict(best_model_wts)
     return network, best_acc, losses, accuracies
 
+def plot_data(losses, accuracies, name):
+    """Plot training and validation statistics.
+
+    Args:
+        losses (dictionary): containing list of cross entrophy losses for
+                                training and validation splits
+        accuracies (dictionary): contains list of accuracies for training
+                                    and validation splits
+        name (string): name to save plot
+    """
+    # set fontsize
+    plt.rcParams.update({'font.size': 12})
+    fig, (ax1, ax2) = plt.subplots(nrows=1, ncols=2, figsize=(8,6))
+    ax1.set_title('Losses')
+    ax1.set_xlabel('Number of Epochs')
+    ax1.set_ylabel('Cross Entropy Loss')
+    ax1.set_ylim(0,2)
+    ax1.plot(losses['Train'], label='Training')
+    ax1.plot(losses['Valid'], label='Validation')
+    ax1.legend(loc='upper right')
+
+    ax2.set_title('Accuracy')
+    ax2.set_xlabel('Number of Epochs')
+    ax2.set_ylabel('Accuracy (%)')
+    ax2.set_ylim(0,100)
+    ax2.plot(accuracies['Train'], label='Training')
+    ax2.plot(accuracies['Valid'], label='Validation')
+    ax2.legend(loc='upper left')
+
+    fig.tight_layout()
+    fig.savefig('../outputs/' + name)
+
+def plot_confusion(network, dataloader, dataset_size):
+    """Plot confusion matrix.
+
+    Args:
+        network (torchvision.models): network to evaluate
+        dataloader (torch.utils.data.dataloader): validation dataloader
+        dataset_size (int): size of validation dataset
+    """
+    import matplotlib.ticker as ticker
+
+    # set fontsize
+    plt.rcParams.update({'font.size': 12})
+    # initialize confusion matrix
+    confusion = torch.zeros(4,4)
+    running_correct = 0
+    for data in dataloader:
+        # get inputs
+        inputs, labels = data['X'], data['y']
+        # wrap in Variable
+        inputs = Variable(inputs.cuda())
+        labels = Variable(labels.cuda())
+        # reshape [numSeqs, batchSize, numChannels, Height, Width]
+        inputs = inputs.transpose(0,1)
+        # forward pass
+        outputs = network.forward(inputs)
+        # accuracy
+        _, pred = torch.max(outputs.data, 1)
+        for i in range(pred.size(0)):
+            confusion[labels.data[i]][pred[i]] += 1
+                
+    # normalize confusion matrix
+    for i in range(4):
+        confusion[i] = confusion[i] / confusion[i].sum()
+
+    print('Confusion Matrix:')
+    print(confusion)
+    # plot confusion matrix
+    fig, ax = plt.subplots(figsize=(6,5))
+    cax = ax.matshow(confusion.numpy())
+    fig.colorbar(cax)
+    all_categories = ['low attention', 'medium attention', 'high attention',
+            'very high attention']
+    ax.set_xticklabels([''] + all_categories, rotation=90)
+    ax.set_yticklabels([''] + all_categories)
+    ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
+    ax.yaxis.set_major_locator(ticker.MultipleLocator(1))
+    fig.tight_layout()
+    fig.savefig('../outputs/confusion.png')
+
 def main():
     """Main Function."""
     # dataloader parameters
-    GPU = torch.cuda.is_available()
+    if not torch.cuda.is_available():
+        print('Please run with GPU')
+        return
+
     labels_path = '/usr/local/faststorage/gcorc/accv/average_labels.txt'
     batch_size = 32
     num_workers = 2
@@ -128,7 +205,7 @@ def main():
     rnn_hidden = 512
     rnn_layer = 2
     # training parameters
-    num_epochs = 60
+    num_epochs = 2
     learning_rate = 1e-4
     criterion = nn.CrossEntropyLoss()
     print('Training Parameters:')
@@ -143,8 +220,8 @@ def main():
             + '_lay:' + str(rnn_layer) + '_hid:' + str(rnn_hidden) \
             + '.png'
     dataloaders, dataset_sizes = get_loaders(labels_path,
-            batch_size, sample_rate, num_workers=num_workers,
-            gpu=GPU, flow=False)
+            batch_size, sample_rate, num_workers=num_workers, flow=False)
+    print(dataset_sizes)
     # create network and optimizer
     net = model.VGGNetLSTMfc1(rnn_hidden, rnn_layer)
     #TODO change which parameters are trainable
@@ -160,29 +237,18 @@ def main():
     # train the network
     net, val_acc, losses, accuracies = train_network(net, 
             dataloaders, dataset_sizes, criterion, optimizer, 
-            scheduler, num_epochs, GPU)
+            scheduler, num_epochs)
     print('Best Validation Acc:', val_acc)
     print('-' * 60)
     print()
     # plot
-    plt.figure()
-    plt.subplot(121)
-    plt.plot(losses['Train'], label='Train')
-    plt.plot(losses['Valid'], label='Valid')
-    plt.title('Loss')
-    plt.ylim((0,2))
-    plt.legend(loc='upper right')
-    plt.subplot(122)
-    plt.plot(accuracies['Train'], label='Train')
-    plt.plot(accuracies['Valid'], label='Valid')
-    plt.title('Accuracy')
-    plt.ylim((0,1))
-    plt.legend(loc='upper left')
-    plt.savefig('../outputs/' + s)
+    plot_data(losses, accuracies, s)
+    plot_confusion(net, dataloaders['Valid'], dataset_sizes['Valid'])
 
-    best_params = {'sample_rate': sample_rate, 
-            'rnn_layer': rnn_layer, 'rnn_hidden': rnn_hidden}
-    torch.save(net.state_dict(), '../data/net_params.pkl')
+
+#    best_params = {'sample_rate': sample_rate, 
+#            'rnn_layer': rnn_layer, 'rnn_hidden': rnn_hidden}
+#    torch.save(net.state_dict(), '../data/net_params.pkl')
 
 if __name__ == '__main__':
     main()

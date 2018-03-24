@@ -294,7 +294,8 @@ class Normalize():
         video = np.asarray(video, dtype=np.float32)
         return video
 
-def get_loaders(labels_path, batch_size, frame_sample, num_workers, gpu, flow):
+def get_loaders(labels_path, batch_size, frame_sample, num_workers, flow, 
+        gpu=True):
     """Return dictionary of torch.utils.data.DataLoader.
 
     Args:
@@ -302,8 +303,8 @@ def get_loaders(labels_path, batch_size, frame_sample, num_workers, gpu, flow):
         batch_size (int):       number of instances in batch
         frame_sample (int):     sample video every `frame_sample`
         num_workers (int):      number of subprocesses used for data loading
-        gpu (bool):             presence of gpu
         flow (bool):            if using flow dataset
+        gpu (bool):             presence of gpu (default is true)
 
     Returns:
         torch.utils.data.DataLoader:    dataloader for custom dataset
@@ -341,7 +342,8 @@ def get_loaders(labels_path, batch_size, frame_sample, num_workers, gpu, flow):
     num_instances = len(datasets['Train'])
     indices = list(range(num_instances))
     split = math.floor(num_instances * 0.8)
-    train_indices, valid_indices = indices[:split], indices[split:]
+    #TODO remove slicing
+    train_indices, valid_indices = indices[:split][:20], indices[split:][:10]
     samplers = {'Train': SubsetRandomSampler(train_indices),
                 'Valid': SubsetRandomSampler(valid_indices)}
     
@@ -371,7 +373,7 @@ def main():
 
     # dictionary of dataloaders
     dataloaders, dataset_sizes = get_loaders(labels_path, batch_size, 
-            frame_sample, num_workers, gpu, flow=True)
+            frame_sample, num_workers, flow=True, gpu=True)
     print('Dataset Sizes:')
     print(dataset_sizes)
     print()
