@@ -62,19 +62,75 @@ class FlowDataset(Dataset):
         sample = {'X': X_flow, 'y': y}
         return sample
 
+class TwostreamDataset(Dataset):
+    """Twostream Attention Dataset.
+    
+    Args:
+        labels_path (string):   path to text file with annotations
+        transform (callable):   transform to be applied on image
+
+    Returns:
+        torch.utils.data.Dataset: dataset for raw image frames and ``flow
+                                    images.``
+    """
+
+    def __init__(self, labels_path, transform=None):
+        # read video path and labels
+        with open(labels_path, 'r') as f:
+            data = f.read()
+            data = data.split()
+            data = np.array(data)
+            data = np.reshape(data, (-1, 2))
+
+        np.random.shuffle(data)
+        self.data = data
+        self.transform = transform
+
+    def __len__(self):
+        """
+        Retrieve Dataset Length.
+        """
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        """
+        Retrieve Next Item in Dataset.
+
+        @return sample: sample['X'] contains input data while sample['y']
+                        contains attention label.
+        """
+        video_path = self.data[idx, 0]
+        # change to flow dataset
+        video_path_flow = video_path[:45] + '_flow' + video_path[45:]
+        y = int(self.data[idx, 1]) - 1
+        X = np.load(video_path)
+        X_flow = np.load(video_path_flow)
+        # transform data
+        if self.transform:
+            X = self.transform(X)
+            X_flow = self.transform(X_flow)
+
+        # combine into one stream (remove first sequence of appearance feats)
+        X = X[1:]
+        X_combine = np.vstack((X, X_flow))
+        # reformat [numSeqs x numChannels x Height x Width]
+        X = np.transpose(X_combine, (0,3,1,2))
+        # store in sample
+        sample = {'X': X, 'y': y}
+        return sample
+
 class AttentionDataset(Dataset):
     """Attention Level Dataset.
     
     Args:
         labels_path (string):   path to text file with annotations
-        frame_sample (int):     sample video every `frame_sample`
         transform (callable):   transform to be applied on image
 
     Returns:
         torch.utils.data.Dataset: dataset object
     """
 
-    def __init__(self, labels_path, frame_sample, transform=None):
+    def __init__(self, labels_path, transform=None):
         # read video paths and labels
         with open(labels_path, 'r') as f:
             data = f.read()
@@ -84,7 +140,6 @@ class AttentionDataset(Dataset):
         
         np.random.shuffle(data)
         self.data = data
-        self.frame_sample = frame_sample
         self.transform = transform
     
     def __len__(self):
@@ -94,11 +149,9 @@ class AttentionDataset(Dataset):
         video_path = self.data[idx, 0]
         y = int(self.data[idx, 1]) - 1
         X = np.load(video_path)
-        # sample video
-        X_sample = X[::self.frame_sample]
         # transform data
         if self.transform:
-            X_sample = self.transform(X_sample)
+            X_sample = self.transform(X)
 
         # reformat [numSeqs x numChannels x Height x Width]
         X_sample = np.transpose(X_sample, (0,3,1,2))
@@ -294,14 +347,13 @@ class Normalize():
         video = np.asarray(video, dtype=np.float32)
         return video
 
-def get_loaders(labels_path, batch_size, frame_sample, num_workers, flow, 
-        gpu=True):
+def get_loaders(labels_path, datatype, batch_size, num_workers, gpu=True):
     """Return dictionary of torch.utils.data.DataLoader.
 
     Args:
         labels_path (string):   path to text file with annotations
+        datatype (string):     dataset being used
         batch_size (int):       number of instances in batch
-        frame_sample (int):     sample video every `frame_sample`
         num_workers (int):      number of subprocesses used for data loading
         flow (bool):            if using flow dataset
         gpu (bool):             presence of gpu (default is true)
@@ -329,21 +381,24 @@ def get_loaders(labels_path, batch_size, frame_sample, num_workers, flow,
             }
 
     # create dataset object
-    if flow:
+    if datatype == 'flow':
         datasets = {x: FlowDataset(
             labels_path, data_transforms[x]
             ) for x in ['Train', 'Valid']}
-    else:
+    elif datatype == 'raw':
         datasets = {x: AttentionDataset(
-            labels_path, frame_sample, data_transforms[x]
+            labels_path, data_transforms[x]
+            ) for x in ['Train', 'Valid']}
+    elif datatype == 'twostream':
+        datasets = {x: TwostreamDataset(
+            labels_path, data_transforms[x]
             ) for x in ['Train', 'Valid']}
 
     # random split for training and validation
     num_instances = len(datasets['Train'])
     indices = list(range(num_instances))
     split = math.floor(num_instances * 0.8)
-    #TODO remove slicing
-    train_indices, valid_indices = indices[:split][:20], indices[split:][:10]
+    train_indices, valid_indices = indices[:split], indices[split:]
     samplers = {'Train': SubsetRandomSampler(train_indices),
                 'Valid': SubsetRandomSampler(valid_indices)}
     
@@ -366,21 +421,28 @@ def main():
 
     # hyperparameters
     labels_path = '/usr/local/faststorage/gcorc/accv/average_labels.txt'
-    batch_size = 1
-    frame_sample = 5
+    batch_size = 32
     num_workers = 2
     gpu = torch.cuda.is_available()
 
-    # dictionary of dataloaders
-    dataloaders, dataset_sizes = get_loaders(labels_path, batch_size, 
-            frame_sample, num_workers, flow=True, gpu=True)
-    print('Dataset Sizes:')
-    print(dataset_sizes)
-    print()
+    dataset = TwostreamDataset(labels_path)
+    for i in range(len(dataset)):
+        sample = dataset[i]
+        data = sample['X']
+        print(data.shape)
+        if i == 0:
+            break
 
-    train_batch = next(iter(dataloaders['Train']))
-    data, labels = train_batch['X'], train_batch['y']
-    print(data.size())
+#    # dictionary of dataloaders
+#    dataloaders, dataset_sizes = get_loaders(labels_path, 'twostream', 
+#            batch_size, num_workers, gpu=True)
+#    print('Dataset Sizes:')
+#    print(dataset_sizes)
+#    print()
+#
+#    train_batch = next(iter(dataloaders['Train']))
+#    data, labels = train_batch['X'], train_batch['y']
+#    print(data.size())
 
 if __name__ == '__main__':
     main()

@@ -12,7 +12,7 @@ import model
 from dataloader_nd import get_loaders
 
 def train_network(network, dataloaders, dataset_sizes, criterion, 
-        optimizer, scheduler, num_epochs):
+        optimizer, max_epochs, twostream=True):
     """Train network.
 
     Args:
@@ -22,8 +22,8 @@ def train_network(network, dataloaders, dataset_sizes, criterion,
         dataset_sizes (dictionary): size of training and validation datasets
         criterion (torch.nn.modules.loss): loss function
         opitimier (torch.optim): optimization algorithm.
-        scheduler (torch.optim): scheduled learning rate.
-        num_epochs (int): number of epochs used for training
+        max_epochs (int): maximum number of epochs used for training
+        twostream (bool):   if using two stream approach vs single stream
 
     Returns:
         torchvision.models: best trained model
@@ -41,11 +41,11 @@ def train_network(network, dataloaders, dataset_sizes, criterion,
     best_acc = 0.0
     losses = {'Train': [], 'Valid': []}
     accuracies = {'Train': [], 'Valid': []}
-
-    for epoch in range(num_epochs):
+    patience = 0
+    for epoch in range(max_epochs):
         print()
-        print('Epoch {}/{}'.format(epoch, num_epochs-1))
-        print('-' * 10)
+        print('Epoch {}'.format(epoch))
+        print('-' * 8)
         # each epoch has a training and validation phase
         for phase in ['Train', 'Valid']:
             if phase == 'Train':
@@ -90,13 +90,16 @@ def train_network(network, dataloaders, dataset_sizes, criterion,
             # store stats
             losses[phase].append(epoch_loss)
             accuracies[phase].append(epoch_acc)
-            # perform scheduled learning rate reduction
             if phase == 'Valid':
-                scheduler.step(epoch_loss)
+                patience += 1
                 if epoch_acc > best_acc:
                     # deep copy the model
                     best_acc = epoch_acc
                     best_model_wts = copy.deepcopy(network.state_dict())
+                    patience = 0
+
+        if patience == 20:
+            break
 
     # print elapsed time
     time_elapsed = time.time() - start
@@ -104,7 +107,6 @@ def train_network(network, dataloaders, dataset_sizes, criterion,
     print('Training Complete in {:.0f}m {:.0f}s'.format(
         time_elapsed // 60, time_elapsed % 60
         ))
-
     # load the best model weights
     network.load_state_dict(best_model_wts)
     return network, best_acc, losses, accuracies
@@ -119,10 +121,12 @@ def plot_data(losses, accuracies, name):
                                     and validation splits
         name (string): name to save plot
     """
+    # convert accuracies to percentages
+    accuracies['Train'] = [acc * 100 for acc in accuracies['Train']]
+    accuracies['Valid'] = [acc * 100 for acc in accuracies['Valid']]
     # set fontsize
-    plt.rcParams.update({'font.size': 12})
-    fig, (ax1, ax2) = plt.subplots(nrows=1, ncols=2, figsize=(8,6))
-    ax1.set_title('Losses')
+    plt.rcParams.update({'font.size': 13})
+    fig, (ax1, ax2) = plt.subplots(nrows=1, ncols=2, figsize=(8,5))
     ax1.set_xlabel('Number of Epochs')
     ax1.set_ylabel('Cross Entropy Loss')
     ax1.set_ylim(0,2)
@@ -130,7 +134,6 @@ def plot_data(losses, accuracies, name):
     ax1.plot(losses['Valid'], label='Validation')
     ax1.legend(loc='upper right')
 
-    ax2.set_title('Accuracy')
     ax2.set_xlabel('Number of Epochs')
     ax2.set_ylabel('Accuracy (%)')
     ax2.set_ylim(0,100)
@@ -141,13 +144,14 @@ def plot_data(losses, accuracies, name):
     fig.tight_layout()
     fig.savefig('../outputs/' + name)
 
-def plot_confusion(network, dataloader, dataset_size):
+def plot_confusion(network, dataloader, dataset_size, name):
     """Plot confusion matrix.
 
     Args:
         network (torchvision.models): network to evaluate
         dataloader (torch.utils.data.dataloader): validation dataloader
         dataset_size (int): size of validation dataset
+        name (string): name to save confusion matrix
     """
     import matplotlib.ticker as ticker
 
@@ -188,7 +192,7 @@ def plot_confusion(network, dataloader, dataset_size):
     ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
     ax.yaxis.set_major_locator(ticker.MultipleLocator(1))
     fig.tight_layout()
-    fig.savefig('../outputs/confusion.png')
+    fig.savefig('../outputs/' + name)
 
 def main():
     """Main Function."""
@@ -201,53 +205,48 @@ def main():
     batch_size = 32
     num_workers = 2
     # network parameters
-    sample_rate = 5
-    rnn_hidden = 512
-    rnn_layer = 2
+    rnn_hiddens = [256, 512]
+    rnn_layers = [1,2,3]
     # training parameters
-    num_epochs = 2
+    max_epochs = 100
     learning_rate = 1e-4
     criterion = nn.CrossEntropyLoss()
-    print('Training Parameters:')
-    print('batch_size: {}, num_workers: {}, lr: {}'.format(
-        batch_size, num_workers, learning_rate
-        ))
-    s = 'sample_rate: {}, rnn_layer: {}, rnn_hidden: {}'
-    print(s.format(sample_rate, rnn_layer, rnn_hidden))
-    # string to save plot
-    s = 'bs:' + str(batch_size) + '_w:' + str(num_workers) + '_lr:' \
-            + str(learning_rate) + '_rate:' + str(sample_rate) \
-            + '_lay:' + str(rnn_layer) + '_hid:' + str(rnn_hidden) \
-            + '.png'
-    dataloaders, dataset_sizes = get_loaders(labels_path,
-            batch_size, sample_rate, num_workers=num_workers, flow=False)
-    print(dataset_sizes)
-    # create network and optimizer
-    net = model.VGGNetLSTMfc1(rnn_hidden, rnn_layer)
-    #TODO change which parameters are trainable
-#    params = net.parameters()
-    params = list(net.lstm.parameters()) \
-            + list(net.fc.parameters())
-    optimizer = optim.Adam(params, learning_rate)
-    # decay lr when validation loss stops improving
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode='min', factor=0.1, 
-            patience=500, verbose=True
-            )
-    # train the network
-    net, val_acc, losses, accuracies = train_network(net, 
-            dataloaders, dataset_sizes, criterion, optimizer, 
-            scheduler, num_epochs)
-    print('Best Validation Acc:', val_acc)
-    print('-' * 60)
-    print()
-    # plot
-    plot_data(losses, accuracies, s)
-    plot_confusion(net, dataloaders['Valid'], dataset_sizes['Valid'])
+    # uncomment below for specifying single stream parameters
+#    architectures = [
+#            {'model': 'VGGNet19', 'flow': False, 'pretrained': True, 
+#                'finetuned': True}
+#            ]
+    for rnn_hidden in rnn_hiddens:
+        for rnn_layer in rnn_layers:
+            print('Training Parameters:')
+            print('Two Stream')
+            print('batch_size: {}, num_workers: {}, lr: {}'.format(
+                batch_size, num_workers, learning_rate
+                ))
+            print('rnn_layer: {}, rnn_hidden: {}'.format(rnn_layer, rnn_hidden))
+            dataloaders, dataset_sizes = get_loaders(labels_path, 'twostream',
+                    batch_size, num_workers)
+            print(dataset_sizes)
+            # create network and optimizer
+            net = model.TwoStreamFusion(rnn_hidden, rnn_layer)
+        #    net = model.TwoStream(rnn_hidden, rnn_layer)
+        #    net = model.SingleStream(arch['model'], rnn_hidden, rnn_layer,
+        #            arch['pretrained'], arch['finetuned'])
+            params = net.parameters()
+            optimizer = optim.Adam(params, learning_rate)
+            # train the network
+            net, val_acc, losses, accuracies = train_network(net, dataloaders, 
+                    dataset_sizes, criterion, optimizer, max_epochs)
+            print('Best Validation Acc:', val_acc)
+            print('-' * 60)
+            print()
+            # plot
+            name = 'twostream_rnnhidden:' + str(rnn_hidden) + '_rnnlayer:' \
+                    + str(rnn_layer)
+            plot_data(losses, accuracies, name + '.png')
+            plot_confusion(net, dataloaders['Valid'], dataset_sizes['Valid'],
+                    name + '-confusion.png')
 
-
-#    best_params = {'sample_rate': sample_rate, 
-#            'rnn_layer': rnn_layer, 'rnn_hidden': rnn_hidden}
 #    torch.save(net.state_dict(), '../data/net_params.pkl')
 
 if __name__ == '__main__':
